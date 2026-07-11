@@ -755,7 +755,7 @@ function finishScoring() {
   clear(scoreBtnsEl);
   scoreBtnsEl.append(
     button("Rematch ↻", () => startMatch(config!), "btn gold small"),
-    button("Menu", () => gotoMenu(), "btn ghost small")
+    button("Main Menu", () => gotoMenu(), "btn small")
   );
 }
 
