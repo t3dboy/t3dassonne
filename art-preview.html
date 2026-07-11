@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>T3dassonne — Art Preview</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #2e2418;
+        background-image: radial-gradient(circle at 30% 0%, #3a2e1e, #241a12 70%);
+        color: #f4e9c8;
+        font-family: system-ui, sans-serif;
+      }
+      #app {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px 20px 60px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+      }
+      .tag {
+        font-size: 12px;
+        color: #c8b48c;
+        margin: 0 0 6px;
+      }
+      canvas {
+        image-rendering: pixelated;
+        background: #241a12;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>T3dassonne — Pixel Art Preview</h1>
+      <p class="tag">Stardew-flavoured Carcassonne tile art · render layer smoke test</p>
+    </div>
+    <script type="module" src="/src/render/preview.ts"></script>
+  </body>
+</html>
