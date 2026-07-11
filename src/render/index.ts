@@ -6,17 +6,15 @@
 export { PALETTE, MEEPLE_COLORS, shade, tint } from "./palette";
 export type { PaletteKey } from "./palette";
 
-// Tile art — dispatched through the style switch (painterly by default,
-// Celeste pixel style when the `?pixel` flag is set).
+// Tile art
 export {
   drawTile,
   clearTileCache,
   prewarmTile,
   computeMeepleSpot,
   TILE_BUFFER_RES,
-  pixelStyleActive,
-} from "./tileArtSwitch";
-export type { DrawTileOpts } from "./tileArtSwitch";
+} from "./tileArt";
+export type { DrawTileOpts } from "./tileArt";
 
 // Meeples
 export { drawMeeple, drawMeepleShadow } from "./meeple";

@@ -5,21 +5,7 @@ import "./ui/style.css";
 import type { GameState, Player, ScoreEvent, LegalPlacement, Rotation } from "./core/types";
 import { posKey } from "./core/types";
 import { engine, cloneState } from "./engine";
-import { drawTile, drawMeeple, BASE_TILE, computeMeepleSpot, loadMeeple3D, meepleModelReady, pixelStyleActive, PALETTE, clearBackgroundCache } from "./render";
-
-// Experimental Celeste pixel style (opt-in via `?pixel`): load the matching UI
-// theme and recolour the empty-board grass so it reads in the same greens as the
-// pixel tiles. Default (no flag) leaves the current painterly look untouched.
-if (pixelStyleActive()) {
-  import("./ui/style.pixel.css");
-  Object.assign(PALETTE, {
-    grassLight: "#9fd45a",
-    grassMid: "#4c8c32",
-    grassDark: "#356b2b",
-    grassDeep: "#274d24",
-  });
-  clearBackgroundCache();
-}
+import { drawTile, drawMeeple, BASE_TILE, computeMeepleSpot, loadMeeple3D, meepleModelReady } from "./render";
 import { audio } from "./audio";
 import { chooseTurn } from "./ai";
 import {
