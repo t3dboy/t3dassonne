@@ -243,7 +243,9 @@ input.name:focus { outline: none; border-color: var(--teal); }
   transform: translateX(-50%); background: rgba(20, 15, 29, 0.9); color: var(--ink);
   border: 2px solid var(--line); border-radius: 12px; padding: 8px 16px;
   font-weight: 800; font-size: 15px; text-align: center; z-index: 30; max-width: 90vw;
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
 }
+.scorestatus .sicon { width: 22px; height: 22px; image-rendering: pixelated; flex: 0 0 auto; }
 .scorebtns {
   position: absolute; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
   display: flex; gap: 10px; justify-content: center; padding: 0 12px; z-index: 30; pointer-events: auto;

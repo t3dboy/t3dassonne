@@ -5,7 +5,7 @@ import "./ui/style.css";
 import type { GameState, Player, ScoreEvent, LegalPlacement, Rotation } from "./core/types";
 import { posKey } from "./core/types";
 import { engine, cloneState } from "./engine";
-import { drawTile, drawMeeple, BASE_TILE, computeMeepleSpot, loadMeeple3D, meepleModelReady } from "./render";
+import { drawTile, drawMeeple, BASE_TILE, computeMeepleSpot, loadMeeple3D, meepleModelReady, featureIconCanvas, featureIconDataUrl } from "./render";
 import { audio } from "./audio";
 import { chooseTurn } from "./ai";
 import {
@@ -90,7 +90,7 @@ let panTarget: { x: number; y: number } | null = null;
 // Final guided-scoring state.
 let highlightTiles: { x: number; y: number }[] | null = null;
 let highlightColor = "#ffd76b"; // colour of the player currently being tallied
-let scorePopup: { x: number; y: number; points: number; color: string; born: number } | null = null;
+let scorePopup: { x: number; y: number; points: number; color: string; kind: string; born: number } | null = null;
 let displayScores: number[] = [];
 let scoringEvents: ScoreEvent[] = [];
 let scoringIndex = 0;
@@ -714,6 +714,15 @@ function updateScoreboard(bumpPids: number[] = []) {
   }
 }
 
+/** Score round-up status line: a pixel feature icon followed by the text. */
+function setScoreStatus(kind: string, text: string) {
+  clear(scoreStatusEl);
+  scoreStatusEl.append(
+    el("img", { class: "sicon", src: featureIconDataUrl(kind) }),
+    document.createTextNode(text)
+  );
+}
+
 function stepScoring() {
   if (!g || appMode !== "scoring") return;
   if (scoringIndex >= scoringEvents.length) {
@@ -727,9 +736,9 @@ function stepScoring() {
   const cy = ev.tiles.reduce((s, t) => s + t.y, 0) / ev.tiles.length;
   panTo(cx, cy);
   const names = ev.playerIds.map((pid) => g!.players[pid]?.name).join(" & ");
-  scoreStatusEl.textContent = `${featureLabel(ev.kind)} — +${ev.points} to ${names}`;
+  setScoreStatus(ev.kind, `${featureLabel(ev.kind)} — +${ev.points} to ${names}`);
   // big glowing score number pops up over the feature in the scorer's colour
-  scorePopup = { x: cx, y: cy, points: ev.points, color: highlightColor, born: performance.now() };
+  scorePopup = { x: cx, y: cy, points: ev.points, color: highlightColor, kind: ev.kind, born: performance.now() };
   setTimeout(() => {
     if (!g || appMode !== "scoring") return;
     for (const pid of ev.playerIds) displayScores[pid] += ev.points;
@@ -1020,6 +1029,12 @@ function frame() {
       ctx.shadowBlur = ts * 0.3;
       ctx.fillStyle = "#fff";
       ctx.fillText(txt, cx, cy);
+      // crisp pixel feature icon sitting just above the number
+      ctx.shadowBlur = 0;
+      ctx.imageSmoothingEnabled = false;
+      const icon = featureIconCanvas(scorePopup.kind);
+      const isz = Math.round(fontPx * 0.72);
+      ctx.drawImage(icon, Math.round(cx - isz / 2), Math.round(cy - fontPx * 0.55 - isz), isz, isz);
       ctx.restore();
     }
 

@@ -16,6 +16,9 @@ export {
 } from "./tileArt";
 export type { DrawTileOpts } from "./tileArt";
 
+// Feature icons (score round-up)
+export { featureIconCanvas, featureIconDataUrl } from "./icons";
+
 // Meeples
 export { drawMeeple, drawMeepleShadow } from "./meeple";
 export { loadMeeple3D, meepleModelReady } from "./meeple3d";
