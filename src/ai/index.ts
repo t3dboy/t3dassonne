@@ -57,7 +57,7 @@ const TUNING: Record<Difficulty, Tuning> = {
     speculativeWeight: 0.35,
     reserve: 3,
     random: true,
-    farmAppetite: 0.05,
+    farmAppetite: 0.1,
   },
   normal: {
     candidateCap: 12,
@@ -65,7 +65,7 @@ const TUNING: Record<Difficulty, Tuning> = {
     speculativeWeight: 0.8,
     reserve: 2,
     random: false,
-    farmAppetite: 0.25,
+    farmAppetite: 0.4,
   },
   hard: {
     candidateCap: 20,
@@ -73,7 +73,7 @@ const TUNING: Record<Difficulty, Tuning> = {
     speculativeWeight: 1.0,
     reserve: 1,
     random: false,
-    farmAppetite: 0.5,
+    farmAppetite: 0.7,
   },
 };
 
@@ -313,6 +313,122 @@ function featureOwners(
   return owners;
 }
 
+// ---- Field / farm survey --------------------------------------------------
+// Farms are the one feature the greedy heuristic used to badly misjudge: their
+// payoff is 3 pts per DISTINCT COMPLETED city the whole connected field touches,
+// only at game end. To value them properly we must flood the entire field
+// component (over half-edges, exactly like the engine) and tally the distinct
+// cities it borders, weighting completed cities fully and open ones by their
+// chance of finishing. Constants below mirror src/engine (kept local to honour
+// the ai↔engine decoupling).
+
+const FDX = [0, 1, 0, -1];
+const FDY = [-1, 0, 1, 0];
+const FOPP = [2, 3, 0, 1];
+// world-node pairing across a border, per world side (see engine FIELD_BORDER).
+const FIELD_BORDER: Record<number, [number, number][]> = {
+  0: [[0, 5], [1, 4]], // N
+  1: [[2, 7], [3, 6]], // E
+  2: [[4, 1], [5, 0]], // S
+  3: [[6, 3], [7, 2]], // W
+};
+/** unrotated half-edge node → world node. */
+const rotNodeW = (node: number, rotation: number): number => (((node + 2 * rotation) % 8) + 8) % 8;
+/** field segment index on a placed tile owning a given WORLD half-edge node. */
+function fieldSegWithWorldNode(pt: PlacedTile, worldNode: number): number {
+  for (const s of pt.def.segments) {
+    if (s.kind !== "field") continue;
+    for (const n of s.edges) if (rotNodeW(n, pt.rotation) === worldNode) return s.index;
+  }
+  return -1;
+}
+
+/** Flood the CITY component containing (x,y,segIdx) on the board; return a stable
+ *  identity key (min node string) plus whether it is already closed (complete). */
+function cityComponent(g: GameState, x: number, y: number, segIdx: number): { key: string; complete: boolean } | null {
+  const start = g.board.get(`${x},${y}`);
+  if (!start) return null;
+  const visited = new Set<string>();
+  const stack: [number, number, number][] = [[x, y, segIdx]];
+  let complete = true;
+  let key = `${x},${y}#${segIdx}`;
+  let guard = 0;
+  while (stack.length && guard++ < 4000) {
+    const [cx, cy, si] = stack.pop()!;
+    const k = `${cx},${cy}#${si}`;
+    if (visited.has(k)) continue;
+    visited.add(k);
+    if (k < key) key = k;
+    const pt = g.board.get(`${cx},${cy}`);
+    if (!pt) continue;
+    const s = pt.def.segments[si];
+    if (!s || s.kind !== "city") continue;
+    for (const unrotSide of s.edges) {
+      const ws = (unrotSide + pt.rotation) % 4;
+      const nx = cx + FDX[ws], ny = cy + FDY[ws];
+      const nb = g.board.get(`${nx},${ny}`);
+      if (!nb) { complete = false; continue; } // an open edge → city not closed
+      const inSide = FOPP[ws];
+      let found = -1;
+      for (const ns of nb.def.segments) {
+        if (ns.kind !== "city") continue;
+        if (ns.edges.some((e) => ((e + nb.rotation) % 4) === inSide)) { found = ns.index; break; }
+      }
+      if (found >= 0) stack.push([nx, ny, found]);
+    }
+  }
+  return { key, complete };
+}
+
+/** Flood the FIELD component containing (x,y,startSeg) and tally the distinct
+ *  cities it borders, split into completed vs still-open. The start tile is
+ *  assumed already on the board (true in every caller). */
+function surveyField(
+  g: GameState,
+  x: number,
+  y: number,
+  startSeg: number,
+): { fieldTiles: number; completeCities: number; openCities: number } {
+  const start = g.board.get(`${x},${y}`);
+  if (!start) return { fieldTiles: 0, completeCities: 0, openCities: 0 };
+  const visited = new Set<string>();
+  const fieldTiles = new Set<string>();
+  const cities = new Map<string, boolean>(); // city key → complete
+  const stack: [number, number, number][] = [[x, y, startSeg]];
+  let guard = 0;
+  while (stack.length && guard++ < 6000) {
+    const [cx, cy, si] = stack.pop()!;
+    const k = `${cx},${cy}#${si}`;
+    if (visited.has(k)) continue;
+    visited.add(k);
+    const pt = g.board.get(`${cx},${cy}`);
+    if (!pt) continue;
+    const s = pt.def.segments[si];
+    if (!s || s.kind !== "field") continue;
+    fieldTiles.add(`${cx},${cy}`);
+    // distinct cities this field segment borders
+    for (const ci of s.adjacentCitySegments ?? []) {
+      const comp = cityComponent(g, cx, cy, ci);
+      if (comp && !cities.has(comp.key)) cities.set(comp.key, comp.complete);
+    }
+    // flood field neighbours across shared half-edges
+    for (const n of s.edges) {
+      const wn = rotNodeW(n, pt.rotation);
+      const ws = Math.floor(wn / 2); // node 0-1→N, 2-3→E, 4-5→S, 6-7→W
+      const nx = cx + FDX[ws], ny = cy + FDY[ws];
+      const nb = g.board.get(`${nx},${ny}`);
+      if (!nb) continue;
+      const pair = FIELD_BORDER[ws].find((p) => p[0] === wn);
+      if (!pair) continue;
+      const nseg = fieldSegWithWorldNode(nb, pair[1]);
+      if (nseg >= 0) stack.push([nx, ny, nseg]);
+    }
+  }
+  let completeCities = 0, openCities = 0;
+  for (const done of cities.values()) done ? completeCities++ : openCities++;
+  return { fieldTiles: fieldTiles.size, completeCities, openCities };
+}
+
 // ---- Meeple evaluation ----------------------------------------------------
 
 /**
@@ -349,13 +465,19 @@ function meepleValue(
   }
 
   if (seg.kind === "field") {
-    // Farmer: only occasionally, and only if plentiful meeples.
-    if (meeplesLeft <= t.reserve + 1) return -50;
-    const cities = seg.adjacentCitySegments ? seg.adjacentCitySegments.length : 0;
-    if (cities === 0) return -50;
-    // 3 pts per completed city at end; discount heavily (end-only, uncertain).
-    const raw = cities * 3;
-    return raw * 0.5 * t.farmAppetite;
+    // Value the WHOLE connected field: 3 pts per distinct city it touches, with
+    // completed cities counted in full and still-open ones discounted (they may
+    // yet close). This lets a fat multi-city farm read as the big play it is,
+    // while a lone field beside one unfinished city stays cheap.
+    const fs = surveyField(g, x, y, seg.index);
+    const potential = fs.completeCities * 3 + fs.openCities * 3 * 0.45;
+    if (potential <= 0) return -50; // borders no city → scores nothing, ever
+    // Reserve discipline: a farmer is locked away until the game ends, so only
+    // spend one from the reserve when the payoff is genuinely large.
+    if (meeplesLeft <= t.reserve && potential < 6) return -50;
+    let val = potential * t.farmAppetite;
+    if (fs.completeCities >= 2) val *= 1.3; // a big secured farm competes with cities
+    return val;
   }
 
   // city or road.

@@ -48,6 +48,12 @@ const cellTopLeft = (gx: number, gy: number): [number, number] => [
   cam.x + gx * tileSize(),
   cam.y + gy * tileSize(),
 ];
+/** "#rrggbb" → "r,g,b" for building rgba() strings with a runtime alpha. */
+function rgbTriplet(hex: string): string {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
 const screenToCell = (sx: number, sy: number): [number, number] => [
   Math.floor((sx - cam.x) / tileSize()),
   Math.floor((sy - cam.y) / tileSize()),
@@ -83,6 +89,8 @@ let lastMove: { x: number; y: number; playerId: number } | null = null;
 let panTarget: { x: number; y: number } | null = null;
 // Final guided-scoring state.
 let highlightTiles: { x: number; y: number }[] | null = null;
+let highlightColor = "#ffd76b"; // colour of the player currently being tallied
+let scorePopup: { x: number; y: number; points: number; color: string; born: number } | null = null;
 let displayScores: number[] = [];
 let scoringEvents: ScoreEvent[] = [];
 let scoringIndex = 0;
@@ -396,6 +404,7 @@ function startMatch(m: MatchConfig) {
   pendingMeeple = null;
   panTarget = null;
   highlightTiles = null;
+  scorePopup = null;
   tileAnim = null;
   allScoreEvents = [];
   clear(overlay);
@@ -713,11 +722,14 @@ function stepScoring() {
   }
   const ev = scoringEvents[scoringIndex];
   highlightTiles = ev.tiles;
+  highlightColor = g.players[ev.playerIds[0]]?.color ?? "#ffd76b"; // scorer's colour
   const cx = ev.tiles.reduce((s, t) => s + t.x, 0) / ev.tiles.length;
   const cy = ev.tiles.reduce((s, t) => s + t.y, 0) / ev.tiles.length;
   panTo(cx, cy);
   const names = ev.playerIds.map((pid) => g!.players[pid]?.name).join(" & ");
   scoreStatusEl.textContent = `${featureLabel(ev.kind)} — +${ev.points} to ${names}`;
+  // big glowing score number pops up over the feature in the scorer's colour
+  scorePopup = { x: cx, y: cy, points: ev.points, color: highlightColor, born: performance.now() };
   setTimeout(() => {
     if (!g || appMode !== "scoring") return;
     for (const pid of ev.playerIds) displayScores[pid] += ev.points;
@@ -740,6 +752,7 @@ function fastForwardScoring() {
 function finishScoring() {
   if (!g) return;
   highlightTiles = null;
+  scorePopup = null;
   scoreStatusEl.classList.add("hidden");
   audio.play("victory");
   const best = Math.max(...displayScores);
@@ -957,19 +970,56 @@ function frame() {
       }
     }
 
-    // guided final scoring — highlight the feature currently being tallied
+    // guided final scoring — highlight the feature currently being tallied, in
+    // the SCORING PLAYER'S colour so it's clear whose points these are.
     if (highlightTiles && appMode === "scoring") {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+      const rgb = rgbTriplet(highlightColor);
       ctx.save();
       ctx.setLineDash([]);
+      ctx.shadowColor = `rgba(${rgb},${0.5 + 0.4 * pulse})`;
+      ctx.shadowBlur = ts * (0.16 + 0.1 * pulse);
       for (const t of highlightTiles) {
         const [px, py] = cellTopLeft(t.x, t.y);
-        ctx.fillStyle = `rgba(255,238,150,${0.16 + 0.14 * pulse})`;
+        ctx.fillStyle = `rgba(${rgb},${0.22 + 0.16 * pulse})`;
         ctx.fillRect(px, py, ts, ts);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = `rgba(255,214,80,${0.65 + 0.35 * pulse})`;
-        ctx.strokeRect(px + 1.5, py + 1.5, ts - 3, ts - 3);
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = `rgba(${rgb},${0.7 + 0.3 * pulse})`;
+        ctx.strokeRect(px + 1.75, py + 1.75, ts - 3.5, ts - 3.5);
       }
+      ctx.restore();
+    }
+
+    // big glowing "+N" over the feature being tallied, in the scorer's colour.
+    if (scorePopup && appMode === "scoring") {
+      const age = performance.now() - scorePopup.born;
+      const e = 1 - Math.pow(1 - Math.min(1, age / 260), 3); // ease-out pop-in
+      const bob = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+      const scale = 0.45 + 0.55 * e;
+      const [tx, ty] = cellTopLeft(scorePopup.x, scorePopup.y);
+      const cx = tx + ts / 2;
+      const cy = ty + ts / 2 - 6 * e; // settle slightly above centre
+      const rgb = rgbTriplet(scorePopup.color);
+      const fontPx = Math.round(ts * 0.9 * scale);
+      const txt = `+${scorePopup.points}`;
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `900 ${fontPx}px "Trebuchet MS", sans-serif`;
+      // soft coloured halo disc behind the number
+      ctx.fillStyle = `rgba(${rgb},${0.16 + 0.1 * bob})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, fontPx * 0.72, 0, Math.PI * 2);
+      ctx.fill();
+      // coloured glow + dark outline + white fill for punchy legibility
+      ctx.shadowColor = `rgba(${rgb},0.95)`;
+      ctx.shadowBlur = ts * (0.4 + 0.12 * bob);
+      ctx.lineWidth = Math.max(3, fontPx * 0.14);
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.strokeText(txt, cx, cy);
+      ctx.shadowBlur = ts * 0.3;
+      ctx.fillStyle = "#fff";
+      ctx.fillText(txt, cx, cy);
       ctx.restore();
     }
 
