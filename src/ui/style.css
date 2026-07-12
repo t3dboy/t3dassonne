@@ -1,4 +1,4 @@
-/* T3dassonne — CELESTE-flavoured pixel UI. Moody dark-plum panels, warm gold &
+/* T3dassonne — pixel-art UI. Moody dark-plum panels, warm gold &
    teal accents, chunky hard-edged pixel shadows. Drop-in replacement for
    src/ui/style.css: every original class name is preserved so screens.ts keeps
    working. Meeple rendering is untouched. */
@@ -38,6 +38,7 @@
   display: block;
   touch-action: none;
   background: #274d24; /* deep meadow under the tiles (matches pixel grass) */
+  z-index: 0;
 }
 
 #overlay {
@@ -46,10 +47,174 @@
   pointer-events: none;
   font-family: var(--font);
   color: var(--ink);
+  z-index: 10;
 }
 #overlay .screen { pointer-events: auto; }
 
-/* ---- full-screen menu screens: moody Celeste mountain dusk ---- */
+/* Opt-in farm HUD chrome: pixel canvas over the board (input passes through to
+   the board, which routes the chrome-button taps). */
+.farmhud {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  z-index: 5;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+/* farm mode hides the DOM HUD the canvas replaces (rotate affordance stays). */
+.farm-mode .scores,
+.farm-mode .topright,
+.farm-mode .dock,
+.farm-mode .confirmbtn { display: none !important; }
+
+/* ---- How-to-Play guide overlay (styled like the playboard: deep-green meadow
+   in a wooden sign frame, bright cream text, gold headings) ---- */
+.guide-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 12, 8, 0.78);
+  backdrop-filter: blur(3px);
+  padding: 12px;
+  pointer-events: auto;
+}
+.guide-panel {
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 720px; height: 100%; max-height: 900px;
+  background: linear-gradient(180deg, #356b2b, #1f3f1d 60%, #16311a);
+  border: 5px solid #7a512e;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 2px #4a2f18, 0 22px 60px rgba(0, 0, 0, 0.6);
+}
+.guide-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #a9713f, #6a431f);
+  border-bottom: 3px solid #4a2f18;
+}
+.guide-title { font-family: var(--font); font-weight: 900; font-size: 18px; color: #ffe9a8; text-shadow: 1px 1px 0 #3a2410; }
+.guide-tabs { display: flex; gap: 6px; margin-left: auto; }
+.guide-tab {
+  font-family: var(--font); font-weight: 800; font-size: 14px; cursor: pointer;
+  color: #3a2a1a; background: linear-gradient(180deg, #f2e2b6, #e0c88c);
+  border: 2px solid #4a2f18; border-radius: 999px; padding: 7px 14px;
+}
+.guide-tab.on { background: linear-gradient(180deg, #ffe27a, #f2c94e); color: #3a2410; border-color: #4a2f18; }
+.guide-close {
+  font-size: 18px; cursor: pointer; color: #f6f0dc;
+  background: #5a3a1e; border: 2px solid #4a2f18;
+  border-radius: 10px; width: 38px; height: 38px; flex: none;
+}
+.guide-close:hover { background: #6a431f; }
+.guide-scroll { overflow-y: auto; padding: 6px 18px 44px; -webkit-overflow-scrolling: touch; }
+.guide-body { color: #f6f0dc; font-family: var(--font); line-height: 1.55; }
+.g-h2 {
+  font-size: 19px; font-weight: 900; color: #ffe082; margin: 24px 0 8px;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  border-bottom: 2px solid rgba(242, 201, 78, 0.28); padding-bottom: 5px;
+}
+.g-h { font-size: 15px; font-weight: 800; color: #ffe9a8; margin: 16px 0 6px; }
+.g-p { font-size: 15.5px; margin: 7px 0; color: #f6f0dc; }
+.g-p b, .g-note b, .g-ul b, .g-table b, .g-h2 b { color: #fff; }
+.g-p u, .g-ul u { text-decoration-color: #ffe082; }
+.g-ul { margin: 6px 0 6px 2px; padding-left: 20px; }
+.g-ul li { font-size: 15.5px; margin: 6px 0; color: #f6f0dc; }
+.g-ul li::marker { color: #ffe082; }
+.g-row { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0; align-items: flex-start; }
+.g-tile { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.g-tile canvas {
+  image-rendering: pixelated; border-radius: 4px;
+  border: 3px solid #7a512e; box-shadow: 0 0 0 1px #4a2f18; background: #274d24;
+}
+.g-tile figcaption { font-size: 12.5px; color: #e6d6ad; text-align: center; max-width: 100px; font-weight: 600; }
+.g-note {
+  font-size: 14.5px; margin: 14px 0; padding: 11px 13px;
+  background: rgba(12, 28, 12, 0.55); border-left: 4px solid #48b4d2;
+  border-radius: 8px; color: #f6f0dc;
+}
+.g-role { display: inline-flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 800; color: #f6f0dc; }
+.g-role .g-dot { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18); }
+.g-tablewrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; }
+.g-table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+.g-table th, .g-table td { border: 1px solid #6a4a2e; padding: 8px 11px; text-align: left; }
+.g-table th { background: #5a3a1e; color: #ffe082; font-weight: 800; }
+.g-table td { color: #f6f0dc; background: rgba(10, 24, 10, 0.35); }
+
+/* menu "How to Play" button */
+.btn.guide { background: rgba(72, 180, 210, 0.14); border-color: var(--teal-dark); color: var(--ink); }
+.btn.guide:hover { border-color: var(--teal); }
+
+/* Per-AI difficulty dropdowns (classic setup screen). */
+.aidiffs { display: flex; flex-direction: column; gap: 6px; }
+.aidiff-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.aidiff-name { font-weight: 700; color: var(--ink); }
+.aidiff-sel {
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--ink);
+  background: rgba(244, 236, 218, 0.08);
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.aidiff-sel option { color: #201608; }
+
+/* Pass & play: brief, non-blocking "X's turn" cue (no confirmation to tap). */
+.turnannounce {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: taFade 1.15s ease forwards;
+}
+.ta-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 26px;
+  background: rgba(20, 15, 29, 0.92);
+  border: 2px solid var(--gold-dark);
+  border-radius: 16px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+}
+.ta-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16);
+}
+.ta-name {
+  font-family: var(--font);
+  font-size: 26px;
+  font-weight: 900;
+  color: var(--ink);
+  letter-spacing: 0.5px;
+}
+@keyframes taFade {
+  0% { opacity: 0; transform: scale(0.9); }
+  16% { opacity: 1; transform: scale(1); }
+  78% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.03); }
+}
+
+/* Opt-in farm canvas UI (?farmui): full-screen pixel menu over everything. */
+.farmui {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 50;
+  touch-action: none;
+  image-rendering: pixelated;
+}
+
+/* ---- full-screen menu screens: moody pixel mountain dusk ---- */
 .screen {
   position: absolute;
   inset: 0;
@@ -269,7 +434,7 @@ input.name:focus { outline: none; border-color: var(--teal); }
 .rotatebtn:active .rico { opacity: 0.98; filter: drop-shadow(0 0 5px rgba(242, 201, 78, 0.8)); }
 .rotatebtn:active .rring { border-color: rgba(242, 201, 78, 0.7); }
 
-/* confirm-placement tick (bottom-right) — teal Celeste accent */
+/* confirm-placement tick (bottom-right) — teal accent */
 .confirmbtn {
   position: absolute; right: 16px; bottom: calc(118px + env(safe-area-inset-bottom));
   width: 68px; height: 68px; border-radius: 50%; border: 3px solid var(--plum-deep);

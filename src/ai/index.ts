@@ -23,9 +23,10 @@ import type {
   TileDef,
   FeatureKind,
   Rotation,
+  Difficulty,
 } from "../core/types";
 
-export type Difficulty = "easy" | "normal" | "hard";
+export type { Difficulty } from "../core/types";
 
 export interface AiTurn {
   placement: LegalPlacement;
@@ -48,7 +49,13 @@ interface Tuning {
   random: boolean;
   /** willingness to place farmers (0..1). */
   farmAppetite: number;
-}
+  /** multiplier on city-meeple value (aggressive leans hard into cities). */
+  cityBias: number;
+  /** >0 turns the "avoid helping opponents" term into a "contest them" reward:
+   *  seek placements that build into / border the human's claimed features to
+   *  set up shared or stolen cities. Only aggressive uses this. */
+  aggression: number;
+};
 
 const TUNING: Record<Difficulty, Tuning> = {
   easy: {
@@ -58,6 +65,8 @@ const TUNING: Record<Difficulty, Tuning> = {
     reserve: 3,
     random: true,
     farmAppetite: 0.1,
+    cityBias: 1.1,
+    aggression: 0,
   },
   normal: {
     candidateCap: 12,
@@ -66,6 +75,8 @@ const TUNING: Record<Difficulty, Tuning> = {
     reserve: 2,
     random: false,
     farmAppetite: 0.4,
+    cityBias: 1.1,
+    aggression: 0,
   },
   hard: {
     candidateCap: 20,
@@ -74,6 +85,20 @@ const TUNING: Record<Difficulty, Tuning> = {
     reserve: 1,
     random: false,
     farmAppetite: 0.7,
+    cityBias: 1.1,
+    aggression: 0,
+  },
+  // Aggressive: strong search, spends meeples freely, barely farms, and heavily
+  // rewards contesting the human — building into their cities to share/steal.
+  aggressive: {
+    candidateCap: 22,
+    denyWeight: 1.0,
+    speculativeWeight: 1.0,
+    reserve: 0,
+    random: false,
+    farmAppetite: 0.15,
+    cityBias: 1.9,
+    aggression: 1.6,
   },
 };
 
@@ -486,7 +511,7 @@ function meepleValue(
 
   if (survey.complete) {
     // completing our own feature right now — full, guaranteed points.
-    return solidPoints;
+    return seg.kind === "city" ? solidPoints * t.cityBias : solidPoints;
   }
 
   // Speculative claim of an unclaimed feature we can plausibly finish.
@@ -502,7 +527,7 @@ function meepleValue(
   }
 
   // Cities are worth more per tile; nudge the AI toward them.
-  if (seg.kind === "city") val *= 1.1;
+  if (seg.kind === "city") val *= t.cityBias;
 
   return val;
 }
@@ -641,7 +666,9 @@ function evaluatePlacement(
   // Reward completing/growing our features (captured via meeple value), plus a
   // structural term for edges matched (progress) and a denial term.
   let structural = 0;
-  let deny = 0;
+  let helpComplete = 0; // opponent features this move FINISHES (a gift → always avoid)
+  let entangle = 0;     // opponent features this move grows but doesn't finish
+  let contestAdj = 0;   // opponent CITY size we sit beside (contest setup)
   const DX = [0, 1, 0, -1];
   const DY = [-1, 0, 1, 0];
   const OPP = [2, 3, 0, 1];
@@ -662,18 +689,28 @@ function evaluatePlacement(
           if (!touches) continue;
           if (nb.meeple.segmentIndex === ns.index) {
             const sv = surveyFeature(sim, placedTile.x, placedTile.y, placedTile.rotation, ns);
-            // helping an opponent grow: penalty; completing for them: bigger.
             const per = ns.kind === "city" ? CITY_TILE_VALUE : ROAD_TILE_VALUE;
             const help = sv.tiles * per + sv.pennants * PENNANT_VALUE;
-            deny += sv.complete ? help : help * 0.25;
+            if (sv.complete) helpComplete += help; else entangle += help * 0.25;
+            if (ns.kind === "city") contestAdj += sv.tiles;
           }
         }
       }
     }
   }
 
-  const score =
-    bestMeepleVal * 1.0 + structural - deny * t.denyWeight;
+  const ownSeg = bestMeepleSeg >= 0 && placedTile ? segOf(placedTile.def, bestMeepleSeg) : undefined;
+
+  // Never gift an opponent a completed feature — a penalty for every difficulty.
+  let score = bestMeepleVal + structural - helpComplete * Math.max(t.denyWeight, 1);
+  if (t.aggression > 0) {
+    // AGGRESSIVE: seek to entangle with the human's features (share/steal), and
+    // especially reward planting our own knight right beside their city.
+    score += entangle * t.aggression;
+    if (ownSeg?.kind === "city") score += contestAdj * t.aggression * 0.8;
+  } else {
+    score -= entangle * t.denyWeight;
+  }
 
   return { score, meepleSegmentIndex: bestMeepleSeg };
 }

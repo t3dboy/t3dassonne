@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>T3dassonne — Meeple Placement Editor</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        background: #1a1420;
+        background-image: radial-gradient(circle at 30% -10%, #2a2036, #140f1d 70%);
+        color: #f2e6cf;
+        font-family: system-ui, sans-serif;
+      }
+      #bar {
+        position: sticky; top: 0; z-index: 10;
+        display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+        padding: 10px 16px;
+        background: #221a2ecc; backdrop-filter: blur(6px);
+        border-bottom: 1px solid #3a2e4a;
+      }
+      #bar h1 { font-size: 15px; margin: 0 12px 0 0; letter-spacing: .5px; }
+      #bar .sp { flex: 1; }
+      button {
+        font: 600 13px system-ui; cursor: pointer;
+        background: #4a2f6e; color: #f2e6cf;
+        border: 1px solid #6a4a94; border-radius: 6px; padding: 7px 11px;
+      }
+      button:hover { background: #5c3c86; }
+      button.gold { background: #b8922f; border-color: #e0b64a; color: #201608; }
+      button.gold:hover { background: #cda23a; }
+      #status { font-size: 12px; color: #b7a6cf; min-width: 120px; }
+      #grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 18px; padding: 18px 16px 80px; max-width: 1400px; margin: 0 auto;
+      }
+      .card {
+        background: #241c30; border: 1px solid #3a2e4a; border-radius: 10px;
+        padding: 12px; display: flex; flex-direction: column; gap: 8px;
+      }
+      .card h2 { font-size: 14px; margin: 0; display: flex; align-items: baseline; gap: 8px; }
+      .card h2 .cnt { font-size: 11px; color: #9c8bbd; font-weight: 400; }
+      .cv-wrap { position: relative; align-self: center; }
+      canvas.tile { image-rendering: pixelated; border-radius: 6px; cursor: crosshair; touch-action: none; display: block; }
+      .segs { display: flex; flex-wrap: wrap; gap: 5px; }
+      .seg {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11px; padding: 4px 8px; border-radius: 999px;
+        background: #180f22; border: 1px solid #3a2e4a; cursor: pointer; user-select: none;
+      }
+      .seg.active { outline: 2px solid #f2c94e; border-color: #f2c94e; }
+      .seg .dot { width: 9px; height: 9px; border-radius: 50%; }
+      .seg .ov { color: #f2c94e; font-weight: 700; }
+      textarea {
+        width: 100%; box-sizing: border-box; resize: vertical; min-height: 42px;
+        background: #180f22; color: #f2e6cf; border: 1px solid #3a2e4a;
+        border-radius: 6px; padding: 6px 8px; font: 12px system-ui;
+      }
+      .row { display: flex; gap: 6px; }
+      .row button { flex: 1; padding: 5px; font-size: 11px; background: #33273f; border-color: #4a3a5e; }
+      .row button:hover { background: #40314f; }
+      .hint { font-size: 11px; color: #9c8bbd; line-height: 1.4; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <h1>Meeple Placement Editor</h1>
+      <span id="status"></span>
+      <span class="sp"></span>
+      <button id="copy" class="gold">Copy JSON</button>
+      <button id="download">Download JSON</button>
+      <button id="import">Import JSON…</button>
+      <button id="resetAll">Reset all</button>
+    </div>
+    <p class="hint" style="max-width:1400px;margin:8px auto 0;padding:0 16px;">
+      Pick a segment chip, then click / drag on the tile to set where that meeple sits.
+      A gold dot on a chip = customised (overrides the automatic spot). Notes are saved per tile.
+      Positions are authored at rotation 0 and auto-rotate in-game. Changes auto-save locally — use <b>Copy JSON</b> to hand them over to be applied.
+    </p>
+    <div id="grid"></div>
+    <script type="module" src="/src/admin/meepleEditor.ts"></script>
+  </body>
+</html>

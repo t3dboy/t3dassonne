@@ -1,6 +1,6 @@
 // ============================================================================
 // T3dassonne — tiny pixel feature icons (road / city / cloister / field) for the
-// end-game score round-up. Same crisp/limited-palette Celeste look as the tiles.
+// end-game score round-up. Same crisp/limited-palette pixel look as the tiles.
 // Each icon is a 14x14 pixel map, rendered once to an offscreen canvas and
 // cached; blit it unsmoothed (or use image-rendering: pixelated on an <img>).
 // ============================================================================

@@ -87,6 +87,9 @@ export interface PlacedTile {
 
 export type PlayerKind = "human" | "ai";
 
+/** AI strength. "aggressive" plays to contest/steal the human's cities. */
+export type Difficulty = "easy" | "normal" | "hard" | "aggressive";
+
 export interface Player {
   id: number;
   name: string;
@@ -94,6 +97,8 @@ export interface Player {
   kind: PlayerKind;
   score: number;
   meeplesLeft: number;
+  /** per-AI strength (ai players only). */
+  difficulty?: Difficulty;
 }
 
 export type Phase =
@@ -173,7 +178,8 @@ export type SfxName =
   | "button"
   | "draw"
   | "victory"
-  | "handoff";
+  | "handoff"
+  | "flip";
 
 export interface AudioApi {
   init(): void; // must be called from a user gesture

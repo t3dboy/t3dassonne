@@ -1,5 +1,5 @@
 // ============================================================================
-// T3dassonne — CELESTE-STYLE PIXEL tile renderer.
+// T3dassonne — PIXEL-ART tile renderer.
 // Every tile is drawn procedurally into a 48x48 buffer and blitted unsmoothed
 // (crisp pixels) with a limited warm/cool palette, hard dark-plum outlines and
 // ordered dithering. Public API (drawTile / computeMeepleSpot / clearTileCache /
@@ -11,6 +11,7 @@
 // ============================================================================
 
 import type { Rotation, Segment, TileDef } from "../core/types";
+import { MEEPLE_SPOT_OVERRIDES, rotateSpot } from "./meepleOverrides";
 
 // ---- Internal pixel palette (tile art only; does NOT touch meeple colours) --
 const PX = {
@@ -443,35 +444,92 @@ function drawCity(buf: Buf, sides: number[], pennant: boolean, salt: number, mas
 // ---------------------------------------------------------------------------
 // CLOISTER
 // ---------------------------------------------------------------------------
+// Detailed Stardew-style church: a central bell tower (spire + gold cross,
+// belfry arch, rosette) flanked by two gabled wings with arched windows, over a
+// central arched door. Modelled on pixel-redesign/cloister-closeup.png.
 function drawCloister(buf: Buf): void {
-  const gr = 17;
-  for (let a = 0; a < 40; a++) {
-    const ang = (a / 40) * Math.PI * 2;
-    const bx = Math.round(CX + Math.cos(ang) * gr), by = Math.round(CY + Math.sin(ang) * (gr - 2));
-    const dk = (a & 1) === 0;
-    setPx(buf, bx, by, dk ? RGB.bush : RGB.bushDark); setPx(buf, bx, by + 1, RGB.bushDark);
-    if (dk) setPx(buf, bx + 1, by, RGB.bush);
+  const mid = 24, baseY = 35;
+  const out = RGB.outline;
+  const wallL = RGB.chapelWall, wallM = RGB.chapelWallDk, wallD = RGB.wallDark;
+  const roofM = RGB.chapelRoof, roofD = RGB.chapelRoofDk, roofL = RGB.roofHi;
+  const glass = RGB.pennantHi, glassD = RGB.pennant, glow = RGB.windowGlow, dark = RGB.window, gold = RGB.pennantGold;
+  const woodM = RGB.wood, woodD = RGB.woodDark;
+
+  // soft ground shadow
+  for (let x = 11; x <= 37; x++)
+    for (let y = baseY; y <= baseY + 2; y++) {
+      const dx = (x - mid) / 14, dy = (y - (baseY + 1)) / 1.6;
+      if (dx * dx + dy * dy <= 1) setPx(buf, x, y, RGB.grassDeep, 0.5);
+    }
+
+  // outlined, softly-shaded stone wall block (inclusive coords)
+  const wall = (x0: number, x1: number, y0: number, y1: number) => {
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        let c = wallL;
+        if (x === x1) c = wallD; else if (x === x0) c = wallM;
+        else if (((x * 3 + y * 5) & 7) === 0) c = wallM;
+        setPx(buf, x, y, c);
+      }
+    for (let x = x0 - 1; x <= x1 + 1; x++) { setPx(buf, x, y0 - 1, out); setPx(buf, x, y1 + 1, out); }
+    for (let y = y0 - 1; y <= y1 + 1; y++) { setPx(buf, x0 - 1, y, out); setPx(buf, x1 + 1, y, out); }
+  };
+  // red gable (triangular) roof; base row spans [x0..x1], rises `h` rows
+  const gable = (x0: number, x1: number, base: number, h: number) => {
+    const c = (x0 + x1) / 2;
+    for (let r = 0; r < h; r++) {
+      const y = base - r;
+      const half = ((h - r) / h) * ((x1 - x0) / 2 + 1);
+      const lx = Math.round(c - half), rx = Math.round(c + half);
+      for (let x = lx; x <= rx; x++) setPx(buf, x, y, r === 0 ? roofD : roofM);
+      if (r > 0) setPx(buf, lx + 1, y, roofL);
+      setPx(buf, lx - 1, y, out); setPx(buf, rx + 1, y, out);
+    }
+    setPx(buf, Math.round(c), base - h, out);
+  };
+  // arched window: dark surround + coloured glass, rounded top
+  const archWin = (cx: number, top: number, h: number, half: number, g: RGB) => {
+    for (let r = 0; r < h; r++) {
+      const y = top + r;
+      const shave = r === 0 ? 1 : 0;
+      for (let x = cx - half + shave; x <= cx + half - shave; x++) {
+        const edge = x === cx - half + shave || x === cx + half - shave || r === h - 1;
+        setPx(buf, x, y, edge ? dark : g);
+      }
+    }
+  };
+
+  // ---- side wings (drawn first; tower overlaps in front) ----
+  for (const wx of [15, 32]) {                 // wing centres
+    wall(wx - 3, wx + 3, 23, baseY);
+    gable(wx - 4, wx + 4, 23, 5);
+    archWin(wx, 27, 4, 1, glass);
+    setPx(buf, wx, 27, glassD);
   }
-  const w = 18, h = 16, x = Math.round(CX - w / 2), y = Math.round(CY - h / 2) + 2;
-  const roofH = 7, wallH = h - roofH;
-  for (let yy = -1; yy <= h; yy++) for (let xx = -1; xx <= w; xx++) if (xx === -1 || yy === -1 || xx === w || yy === h) setPx(buf, x + xx, y + yy, RGB.outline);
-  for (let ry = 0; ry < wallH; ry++)
-    for (let rx = 0; rx < w; rx++) setPx(buf, x + rx, y + roofH + ry, rx >= w - 1 ? RGB.chapelWallDk : RGB.chapelWall);
-  const dw = 4;
-  fillRect(buf, x + Math.round((w - dw) / 2), y + roofH + 2, dw, wallH - 2, RGB.chapelRoofDk);
-  setPx(buf, x + 3, y + roofH + 2, RGB.window); setPx(buf, x + 3, y + roofH + 3, RGB.window);
-  setPx(buf, x + w - 4, y + roofH + 2, RGB.window); setPx(buf, x + w - 4, y + roofH + 3, RGB.window);
-  for (let ry = 0; ry < roofH; ry++) {
-    const inset = Math.round((ry / (roofH - 1)) * (w / 2 - 1));
-    for (let rx = inset; rx < w - inset; rx++) setPx(buf, x + rx, y + ry, ry >= roofH - 1 ? RGB.chapelRoofDk : RGB.chapelRoof);
-    if (ry === Math.round(roofH * 0.5)) for (let rx = inset; rx < w - inset; rx++) setPx(buf, x + rx, y + ry, RGB.chapelRoofDk);
-  }
-  const tx = CX - 1;
-  fillRect(buf, tx - 1, y - 6, 4, 8, RGB.chapelWall);
-  for (let yy = -7; yy <= 2; yy++) { setPx(buf, tx - 2, y + yy, RGB.outline); setPx(buf, tx + 3, y + yy, RGB.outline); }
-  fillRect(buf, tx - 1, y - 6, 4, 2, RGB.chapelRoof);
-  setPx(buf, CX, y - 10, RGB.cross); setPx(buf, CX, y - 9, RGB.cross); setPx(buf, CX, y - 8, RGB.cross);
-  setPx(buf, CX - 1, y - 9, RGB.cross); setPx(buf, CX + 1, y - 9, RGB.cross);
+
+  // ---- central bell tower ----
+  wall(20, 28, 15, baseY);
+  // spire
+  gable(19, 29, 15, 8);
+  // finial cross
+  for (let y = 5; y <= 8; y++) setPx(buf, mid, y, RGB.cross);
+  setPx(buf, mid - 1, 6, RGB.cross); setPx(buf, mid + 1, 6, RGB.cross);
+  setPx(buf, mid, 4, gold);
+  // belfry arch (with warm glow)
+  archWin(mid, 17, 5, 2, dark);
+  setPx(buf, mid, 20, glow); setPx(buf, mid, 21, glow);
+  // rosette window
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++) {
+      const d = dx * dx + dy * dy;
+      if (d <= 4) setPx(buf, mid + dx, 26 + dy, d <= 1 ? gold : glassD);
+      else if (d <= 6) setPx(buf, mid + dx, 26 + dy, out);
+    }
+  setPx(buf, mid, 26, gold);
+  // arched door
+  archWin(mid, 29, baseY - 29 + 1, 2, woodM);
+  setPx(buf, mid - 1, baseY, woodD); setPx(buf, mid + 1, baseY, woodD);
+  setPx(buf, mid + 1, 32, gold); // handle
 }
 
 // ---- masks for carving + meeple spots ------------------------------------
@@ -517,7 +575,7 @@ function renderBufData(def: TileDef, rot: number): Uint8ClampedArray {
   if (roadSides.length) { drawRoad(buf, roadSides, salt); if (riverSides.length) drawBridge(buf, roadSides, riverSides); }
   // Carve a WIDER grass channel between roads and cities so a farm threading
   // between them (and continuing to the next tile) stays clearly visible.
-  const roadCarve = roadSides.length ? dilate(buildRoadMask(roadSides), 3) : undefined;
+  const roadCarve = roadSides.length ? dilate(buildRoadMask(roadSides), 4) : undefined;
   if (cities.length <= 1) {
     for (const c of cities) drawCity(buf, c.sides, c.pennant, salt, undefined, roadCarve);
   } else {
@@ -682,7 +740,9 @@ export function computeMeepleSpot(def: TileDef, rotation: number, segIndex: numb
   if (hit) return hit;
   const seg = def.segments[segIndex];
   let res: { x: number; y: number };
-  if (!seg || seg.kind === "cloister") res = { x: 0.5, y: 0.5 };
+  const override = MEEPLE_SPOT_OVERRIDES[def.id]?.[segIndex];
+  if (override) res = rotateSpot(override, rotation);
+  else if (!seg || seg.kind === "cloister") res = { x: 0.5, y: 0.5 };
   else if (seg.kind === "city") res = poleOfInaccessibility(buildCityMask(seg.edges.map((k) => rotSide(k, rotation))));
   else if (seg.kind === "road") res = roadSpot(seg.edges.map((k) => rotSide(k, rotation)));
   else res = fieldSpot(def, rotation, seg);
@@ -706,7 +766,7 @@ export function drawTile(
 ): void {
   const buf = getBuffer(def, rotation);
   const prevSmoothing = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = false; // CRISP pixels (Celeste style)
+  ctx.imageSmoothingEnabled = false; // CRISP pixels (pixel style)
   if (opts?.ghost) ctx.globalAlpha = 0.55;
   ctx.drawImage(buf, 0, 0, BUF, BUF, Math.round(x), Math.round(y), size, size);
   if (opts?.ghost) ctx.globalAlpha = 1;

@@ -243,6 +243,15 @@ function sfxHandoff(t: number, d: AudioNode): void {
   tone(d, { type: "sine", freq: 880.0, start: t + 0.12, dur: 0.24, peak: 0.2 }); // A5
 }
 
+function sfxFlip(t: number, d: AudioNode): void {
+  // Swooping chime for the table-flip: a soft airy whoosh rising then a bright
+  // two-note sparkle to land on, matching the screen swinging around.
+  noise(d, { start: t, dur: 0.34, peak: 0.1, type: "bandpass", freq: 700, q: 0.6 });
+  tone(d, { type: "sine", freq: 392, glideTo: 784, start: t, dur: 0.3, peak: 0.16 }); // G4 -> G5 swoop
+  tone(d, { type: "triangle", freq: 659.25, start: t + 0.24, dur: 0.16, peak: 0.14 }); // E5
+  tone(d, { type: "sine", freq: 987.77, start: t + 0.32, dur: 0.22, peak: 0.16 }); // B5 sparkle
+}
+
 const SFX: Record<SfxName, (t: number, d: AudioNode) => void> = {
   place: sfxPlace,
   rotate: sfxRotate,
@@ -253,6 +262,7 @@ const SFX: Record<SfxName, (t: number, d: AudioNode) => void> = {
   draw: sfxDraw,
   victory: sfxVictory,
   handoff: sfxHandoff,
+  flip: sfxFlip,
 };
 
 // ============================================================================

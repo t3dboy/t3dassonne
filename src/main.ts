@@ -7,23 +7,59 @@ import { posKey } from "./core/types";
 import { engine, cloneState } from "./engine";
 import { drawTile, drawMeeple, BASE_TILE, computeMeepleSpot, loadMeeple3D, meepleModelReady, featureIconCanvas, featureIconDataUrl } from "./render";
 import { audio } from "./audio";
-import { chooseTurn } from "./ai";
+import { chooseTurn, type Difficulty } from "./ai";
+import { openGuide } from "./ui/guide";
 import {
   showMenu,
   showSetup,
-  showHandoff,
   showGameOver,
+  PLAYER_COLORS,
+  PLAYER_NAMES,
   type MatchConfig,
   type Mode,
   type FinalResult,
 } from "./ui/screens";
 import { el, button, clear } from "./ui/dom";
+import { mountFarmMenu } from "./ui/farm/farmMenu";
+import { drawFarmHud, type HudState, type HudHit } from "./ui/farm/farmHud";
+import type { PixBuf } from "./ui/farm/pixelfont";
+
+/** The pixel "farm" canvas UI is the default; `?classic` (or the saved
+ *  preference) falls back to the plain DOM UI. `?farmui` still forces it on. */
+function farmUiActive(): boolean {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.has("farmui")) return true;
+    if (q.has("classic")) return false;
+    if (typeof localStorage !== "undefined") {
+      const pref = localStorage.getItem("t3d-ui");
+      if (pref === "farm") return true;
+      if (pref === "classic") return false;
+    }
+  } catch { /* restricted context */ }
+  return true;
+}
+const FARM = farmUiActive();
+let farmUnmount: (() => void) | null = null;
+const hexRgb = (hex: string): [number, number, number] => {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+// ---- farm HUD (opt-in canvas playboard chrome) ----
+const FARM_SC = 2; // logical→screen scale for the HUD chrome
+let farmHudCanvas: HTMLCanvasElement | null = null;
+let farmHudCtx: CanvasRenderingContext2D | null = null;
+let farmHudBuf: PixBuf | null = null;
+let farmHudHits: HudHit[] = [];
+let farmBanner: { text: string; color: [number, number, number]; born: number } | null = null;
 
 // ---- root DOM --------------------------------------------------------------
 const app = document.getElementById("app")!;
 const canvas = el("canvas", { id: "board" }) as HTMLCanvasElement;
 const overlay = el("div", { id: "overlay" });
 app.append(canvas, overlay);
+if (FARM) app.classList.add("farm-mode"); // hides the DOM HUD; the farm canvas replaces it
 const ctx = canvas.getContext("2d")!;
 
 let W = 0,
@@ -40,6 +76,21 @@ function resize() {
 }
 window.addEventListener("resize", resize);
 resize();
+
+// ---- table-flip (pass & play on a flat table) ------------------------------
+// Rotate the whole app 180° so the current player sees it upright, no physical
+// turning of the phone. When flipped, pointer coords are inverted so board taps
+// still land correctly (DOM buttons are hit-tested by the browser through the
+// transform automatically).
+let viewFlipped = false;
+function setViewFlip(flip: boolean, animate: boolean): void {
+  viewFlipped = flip;
+  app.style.transformOrigin = "center center";
+  app.style.transition = animate ? "transform 0.62s cubic-bezier(0.5, 0, 0.2, 1)" : "none";
+  app.style.transform = flip ? "rotate(180deg)" : "rotate(0deg)";
+}
+const vx = (cx: number): number => (viewFlipped ? W - cx : cx);
+const vy = (cy: number): number => (viewFlipped ? H - cy : cy);
 
 // ---- camera ----------------------------------------------------------------
 const cam = { x: 0, y: 0, scale: 1.05 };
@@ -118,8 +169,17 @@ function toast(text: string, color = "#3a2a1a") {
 function gotoMenu() {
   appMode = "menu";
   g = null;
+  setViewFlip(false, false); // never leave the menu rotated
   audio.stopMusic(); // leaving a game must silence the looping music
   hud.classList.add("hidden");
+  if (farmUiActive()) {
+    clear(overlay);
+    farmUnmount?.();
+    farmUnmount = mountFarmMenu(app, {
+      start: (mode, players, river, tableFlip, difficulties) => { farmUnmount?.(); farmUnmount = null; startFarmMatch(mode, players, river, tableFlip, difficulties); },
+    });
+    return;
+  }
   showMenu(overlay, { onPlay: (m) => gotoSetup(m) });
 }
 function gotoSetup(mode: Mode) {
@@ -128,6 +188,26 @@ function gotoSetup(mode: Mode) {
     onStart: (m) => startMatch(m),
     onBack: () => gotoMenu(),
   });
+}
+/** Build a MatchConfig from the farm menu's one-screen choices and start it. */
+function startFarmMatch(mode: "ai" | "pass", players: number, river: boolean, tableFlip: boolean, difficulties: Difficulty[]) {
+  const cfg: MatchConfig = {
+    mode,
+    players: Array.from({ length: players }, (_, i) => {
+      const isAI = mode === "ai" && i > 0;
+      return {
+        name: isAI ? `AI ${i}` : PLAYER_NAMES[i],
+        color: PLAYER_COLORS[i],
+        kind: isAI ? ("ai" as const) : ("human" as const),
+        difficulty: isAI ? (difficulties[i - 1] ?? "normal") : undefined,
+      };
+    }),
+    difficulty: "normal", // per-player difficulty above is authoritative; this is a fallback
+    passAndPlay: mode === "pass",
+    river,
+    tableFlip: mode === "pass" && tableFlip,
+  };
+  startMatch(cfg);
 }
 
 // ---- HUD -------------------------------------------------------------------
@@ -148,6 +228,7 @@ rotateBtn.addEventListener("click", (e) => {
   rotateDrawn();
 });
 const menuBtn = button("☰", () => confirmQuit(), "iconbtn");
+const guideBtn = button("?", () => openGuide("quick"), "iconbtn");
 const muteBtn = button(audio.isMuted() ? "🔇" : "🔊", () => toggleMute(), "iconbtn");
 const confirmBtn = button("✓", () => onConfirm(), "confirmbtn");
 const tileCountEl = el("div", { class: "tilecount" }, [
@@ -158,7 +239,7 @@ const tileCountEl = el("div", { class: "tilecount" }, [
 function buildHud() {
   clear(hud);
   const topright = el("div", { class: "topright" });
-  topright.append(muteBtn, menuBtn);
+  topright.append(guideBtn, muteBtn, menuBtn);
   const dock = el("div", { class: "dock" });
   dock.append(handCanvas, tileCountEl, promptEl);
   hud.append(scoresEl, topright, dock, confirmBtn, rotateBtn);
@@ -385,6 +466,8 @@ function setPrompt(text: string) {
 
 // ---- match lifecycle -------------------------------------------------------
 function startMatch(m: MatchConfig) {
+  farmUnmount?.(); // tear down the farm menu canvas if it was showing
+  farmUnmount = null;
   config = m;
   audio.init();
   audio.startMusic();
@@ -395,10 +478,12 @@ function startMatch(m: MatchConfig) {
     kind: pc.kind,
     score: 0,
     meeplesLeft: 7,
+    difficulty: pc.kind === "ai" ? (pc.difficulty ?? m.difficulty) : undefined,
   }));
   const seed = (Date.now() & 0xffffffff) >>> 0;
   g = engine.newGame(players, m.passAndPlay, seed, m.river);
   appMode = "game";
+  setViewFlip(false, false); // start every match upright
   lastMove = null;
   pendingCell = null;
   pendingMeeple = null;
@@ -448,10 +533,25 @@ function handleTurnStart() {
 
   const p = currentPlayer();
   if (g.phase === "h&off" || (config!.passAndPlay && p.kind === "human")) {
-    showHandoffScreen(p.name, p.color);
+    if (config!.tableFlip && config!.passAndPlay && p.kind === "human") {
+      tableFlipToTurn();               // swoop the screen around instead of a "ready?" prompt
+    } else {
+      announceTurn(p.name, p.color);
+    }
     return;
   }
   routeTurn();
+}
+
+/** Auto-rotate the view to the current seat's orientation (table mode), with a
+ *  swooping chime, then start the turn — no hand-off confirmation needed. */
+function tableFlipToTurn() {
+  const want = (g!.current % 2) === 1;
+  if (want === viewFlipped) { routeTurn(); return; }
+  busy = true;
+  audio.play("flip");
+  setViewFlip(want, true);
+  window.setTimeout(() => { busy = false; routeTurn(); }, 660);
 }
 
 function routeTurn() {
@@ -470,16 +570,24 @@ function routeTurn() {
   }
 }
 
-function showHandoffScreen(name: string, color: string) {
+/** Brief, non-blocking "it's X's turn" cue for pass & play (no confirmation to
+ *  tap). Shows a fading card for a beat, then starts the turn automatically. */
+function announceTurn(name: string, color: string) {
   busy = true;
   confirmBtn.classList.add("hidden");
-  const layer = el("div");
+  const layer = el("div", { class: "turnannounce" });
+  const card = el("div", { class: "ta-card" });
+  card.append(
+    el("div", { class: "ta-dot", style: `background:${color}` }),
+    el("div", { class: "ta-name" }, [`${name}'s turn`]),
+  );
+  layer.append(card);
   overlay.append(layer);
-  showHandoff(layer, name, color, () => {
-    overlay.removeChild(layer);
-    audio.play("handoff");
+  audio.play("handoff");
+  window.setTimeout(() => {
+    if (layer.parentNode) overlay.removeChild(layer);
     routeTurn();
-  });
+  }, 1150);
 }
 
 function updateHandDock() {
@@ -586,7 +694,7 @@ function runAiTurn() {
   confirmBtn.classList.add("hidden");
   setTimeout(() => {
     if (!g) return;
-    const turn = chooseTurn(engine, g, config!.difficulty);
+    const turn = chooseTurn(engine, g, currentPlayer().difficulty ?? config!.difficulty);
     // apply placement
     g.drawnRotation = turn.placement.rotation;
     renderHand();
@@ -649,6 +757,11 @@ function animateScores(events: ScoreEvent[]) {
       const pl = g.players[pid];
       toast(`+${ev.points} ${featureLabel(ev.kind)} · ${pl?.name ?? ""}`, pl?.color);
     }
+    // farm HUD banner: show the highest-value scoring feature
+    if (FARM) {
+      const pl = g.players[ev.playerIds[0]];
+      farmBanner = { text: `${featureLabel(ev.kind).toUpperCase()} +${ev.points}`, color: hexRgb(pl?.color ?? "#f2c94e"), born: performance.now() };
+    }
   }
   if (anyPoints) audio.play("score");
 }
@@ -657,6 +770,7 @@ function featureLabel(kind: string): string {
 }
 
 function endMatch() {
+  setViewFlip(false, true); // settle upright for the shared final-scoring view
   beginFinalScoring();
 }
 
@@ -788,7 +902,8 @@ let pinchDist = 0;
 
 canvas.addEventListener("pointerdown", (e) => {
   try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic / lost pointer */ }
-  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false });
+  const px = vx(e.clientX), py = vy(e.clientY);
+  ptrs.set(e.pointerId, { x: px, y: py, sx: px, sy: py, moved: false });
   if (ptrs.size === 2) {
     const [a, b] = [...ptrs.values()];
     pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -797,11 +912,12 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointermove", (e) => {
   const p = ptrs.get(e.pointerId);
   if (!p) return;
-  const dx = e.clientX - p.x;
-  const dy = e.clientY - p.y;
-  if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 8) p.moved = true;
-  p.x = e.clientX;
-  p.y = e.clientY;
+  const cx = vx(e.clientX), cy = vy(e.clientY);
+  const dx = cx - p.x;
+  const dy = cy - p.y;
+  if (Math.hypot(cx - p.sx, cy - p.sy) > 8) p.moved = true;
+  p.x = cx;
+  p.y = cy;
   if (ptrs.size === 1) {
     cam.x += dx;
     cam.y += dy;
@@ -823,13 +939,20 @@ function endPtr(e: PointerEvent) {
   const wasTap = !p.moved && ptrs.size === 1;
   ptrs.delete(e.pointerId);
   if (ptrs.size < 2) pinchDist = 0;
-  if (wasTap) handleTap(e.clientX, e.clientY);
+  if (wasTap) {
+    const tx = vx(e.clientX), ty = vy(e.clientY);
+    if (FARM) {
+      const hid = farmHudHitAt(tx, ty);
+      if (hid) { handleFarmHudTap(hid); return; }
+    }
+    handleTap(tx, ty);
+  }
 }
 canvas.addEventListener("pointerup", endPtr);
 canvas.addEventListener("pointercancel", (e) => ptrs.delete(e.pointerId));
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
-  zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  zoomAt(vx(e.clientX), vy(e.clientY), e.deltaY < 0 ? 1.1 : 1 / 1.1);
 }, { passive: false });
 
 function zoomAt(cx: number, cy: number, factor: number) {
@@ -862,6 +985,98 @@ function handleTap(sx: number, sy: number) {
   }
 }
 
+// ---- farm HUD (opt-in canvas playboard) ------------------------------------
+/** State of the bottom-right ✓ for the farm HUD. */
+function farmConfirmState(): "hidden" | "ok" | "off" {
+  if (!g || currentPlayer().kind !== "human" || busy) return "hidden";
+  if (g.phase === "placeTile") return pendingCell && pendingValid() ? "ok" : "off";
+  if (g.phase === "placeMeeple") return pendingMeeple !== null ? "ok" : "hidden"; // ✓ only appears once a meeple is chosen; the no-meeple button covers "none"
+  return "hidden";
+}
+/** A short, sign-sized instruction for the current state. */
+function farmPrompt(): string {
+  if (!g) return "";
+  if (currentPlayer().kind !== "human") return currentPlayer().name.toUpperCase() + "\nTHINKS";
+  if (g.phase === "placeTile") {
+    if (!pendingCell) return "TAP TO\nPLACE";
+    return pendingValid() ? "LOOKS\nGOOD!" : "ROTATE\nTO FIT";
+  }
+  if (g.phase === "placeMeeple") return pendingMeeple !== null ? "TAP ✓" : "MEEPLE?\nOR SKIP";
+  return "";
+}
+function buildHudState(): HudState {
+  const gg = g!;
+  return {
+    chips: gg.players.map((p, i) => ({
+      color: hexRgb(p.color),
+      name: p.name.toUpperCase().slice(0, 6),
+      score: String(p.score),
+      active: i === gg.current,
+    })),
+    tilesLeft: String(gg.deck.length),
+    prompt: farmPrompt(),
+    confirm: farmConfirmState(),
+    meeple: gg.phase === "placeMeeple" && pendingMeeple === null && currentPlayer().kind === "human" && !busy,
+    banner: farmBanner && performance.now() - farmBanner.born < 1800 ? { text: farmBanner.text, color: farmBanner.color } : null,
+    muted: audio.isMuted(),
+  };
+}
+function renderFarmHud() {
+  if (!FARM) return;
+  if (!farmHudCanvas) {
+    farmHudCanvas = el("canvas", { class: "farmhud" }) as HTMLCanvasElement;
+    farmHudCtx = farmHudCanvas.getContext("2d")!;
+    app.append(farmHudCanvas);
+  }
+  const show = !!g && appMode === "game";
+  farmHudCanvas.style.display = show ? "block" : "none";
+  if (!show) { farmHudHits = []; return; }
+  const lw = Math.max(140, Math.round(W / FARM_SC)), lh = Math.max(200, Math.round(H / FARM_SC));
+  if (!farmHudBuf || farmHudBuf.w !== lw || farmHudBuf.h !== lh) {
+    farmHudBuf = { w: lw, h: lh, data: new Uint8ClampedArray(lw * lh * 4) };
+    farmHudCanvas.width = lw; farmHudCanvas.height = lh;
+    farmHudCtx!.imageSmoothingEnabled = false;
+  }
+  farmHudBuf.data.fill(0); // transparent — board shows through the gaps
+  const layout = drawFarmHud(farmHudBuf, performance.now() / 1000, buildHudState());
+  farmHudHits = layout.hits;
+  const imgd = farmHudCtx!.createImageData(lw, lh);
+  imgd.data.set(farmHudBuf.data);
+  farmHudCtx!.putImageData(imgd, 0, 0);
+  // the actual drawn tile in the hand slot (drawn crisp on top of the chrome)
+  if (layout.hand && g!.drawn && currentPlayer().kind === "human") {
+    farmHudCtx!.imageSmoothingEnabled = false;
+    drawTile(farmHudCtx!, g!.drawn, g!.drawnRotation, layout.hand.x, layout.hand.y, layout.hand.w);
+  }
+  // the "no meeple" button icon: the player's follower with a red cross through it
+  if (layout.meeple) {
+    const m = layout.meeple, cx = m.x + m.w / 2, cy = m.y + m.h / 2;
+    drawMeeple(farmHudCtx!, cx, cy - 1, m.w * 0.62, currentPlayer().color, false);
+    const c = farmHudCtx!;
+    c.save();
+    c.lineCap = "round";
+    c.lineWidth = 4; c.strokeStyle = "#1a1220";
+    c.beginPath(); c.moveTo(m.x + 9, m.y + 9); c.lineTo(m.x + m.w - 9, m.y + m.h - 9); c.stroke();
+    c.lineWidth = 2.5; c.strokeStyle = "#e6432f";
+    c.beginPath(); c.moveTo(m.x + 9, m.y + 9); c.lineTo(m.x + m.w - 9, m.y + m.h - 9); c.stroke();
+    c.restore();
+  }
+}
+/** Map a screen tap to a farm-HUD button id, or null. */
+function farmHudHitAt(cx: number, cy: number): string | null {
+  if (!farmHudBuf || !farmHudCanvas || farmHudCanvas.style.display === "none") return null;
+  const lx = cx * (farmHudBuf.w / W), ly = cy * (farmHudBuf.h / H);
+  for (const h of farmHudHits) if (lx >= h.x && lx <= h.x + h.w && ly >= h.y && ly <= h.y + h.h) return h.id;
+  return null;
+}
+function handleFarmHudTap(id: string) {
+  if (id === "confirm") onConfirm();
+  else if (id === "nomeeple") humanSkipMeeple();
+  else if (id === "menu") confirmQuit();
+  else if (id === "mute") toggleMute();
+  else if (id === "guide") openGuide();
+}
+
 // ---- render loop -----------------------------------------------------------
 function drawGrass() {
   const ts = tileSize();
@@ -887,6 +1102,34 @@ function drawGrass() {
   ctx.restore();
 }
 
+// Farm mode: a deep, textured pixel MEADOW under the board (matches the cowork
+// preview) — dithered grassMid/dark/deep with tufts. Rendered once to a small
+// offscreen texture and blitted crisp; static (tiles scroll over it).
+let farmGrassTex: HTMLCanvasElement | null = null;
+let farmGrassKey = "";
+function buildFarmGrass() {
+  const SC = 3, lw = Math.max(2, Math.ceil(W / SC)), lh = Math.max(2, Math.ceil(H / SC));
+  const c = document.createElement("canvas"); c.width = lw; c.height = lh;
+  const cc = c.getContext("2d")!;
+  const img = cc.createImageData(lw, lh), d = img.data;
+  const mid = [76, 140, 50], dark = [53, 107, 43], deep = [39, 77, 36], hi = [108, 174, 60];
+  const put = (x: number, y: number, r: number[]) => { const i = (y * lw + x) * 4; d[i] = r[0]; d[i + 1] = r[1]; d[i + 2] = r[2]; d[i + 3] = 255; };
+  const hb = (x: number, y: number, s: number) => { let h = (x * 374761393 + y * 668265263 + s * 2246822519) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = (h * 1274126177) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+  for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
+    const n = hb(x, y, 5), dd = ((x & 3) + (y & 3) * 4) / 16, v = 0.4 + (0.5 - dd) * 0.28 + (n - 0.5) * 0.2;
+    put(x, y, n > 0.965 ? hi : v < 0.3 ? mid : v < 0.62 ? dark : deep);
+  }
+  const tufts = Math.round(lw * lh / 900);
+  for (let i = 0; i < tufts; i++) { const x = Math.floor(hb(i, 7, 3) * lw), y = Math.floor(hb(i, 8, 3) * lh); if (hb(i, 9, 3) > 0.6) { put(x, y, deep); if (y + 1 < lh) put(x, y + 1, deep); } }
+  cc.putImageData(img, 0, 0);
+  farmGrassTex = c; farmGrassKey = `${W}x${H}`;
+}
+function drawFarmGrass() {
+  if (!farmGrassTex || farmGrassKey !== `${W}x${H}`) buildFarmGrass();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(farmGrassTex!, 0, 0, farmGrassTex!.width, farmGrassTex!.height, 0, 0, canvas.width, canvas.height);
+}
+
 function frame() {
   requestAnimationFrame(frame);
   // smooth auto-pan
@@ -896,7 +1139,7 @@ function frame() {
     if (Math.hypot(panTarget.x - cam.x, panTarget.y - cam.y) < 0.5) panTarget = null;
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  drawGrass();
+  if (FARM) drawFarmGrass(); else drawGrass();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
   if (g) {
@@ -1165,8 +1408,18 @@ function frame() {
 
   positionRotateBtn();
 
-  // toasts
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // farm mode: soft edge vignette so the HUD chrome reads over the meadow
+  if (FARM && g && appMode === "game") {
+    const cw = canvas.width, ch = canvas.height;
+    const grd = ctx.createRadialGradient(cw / 2, ch * 0.44, ch * 0.28, cw / 2, ch / 2, ch * 0.82);
+    grd.addColorStop(0, "rgba(20,15,29,0)");
+    grd.addColorStop(1, "rgba(20,15,29,0.42)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, cw, ch);
+  }
+
+  // toasts
   const now = performance.now();
   ctx.textAlign = "center";
   for (let i = toasts.length - 1; i >= 0; i--) {
@@ -1183,6 +1436,8 @@ function frame() {
     ctx.fillText(tt.text, (W / 2) * DPR, y + (toasts.length - 1 - i) * 26 * DPR);
     ctx.globalAlpha = 1;
   }
+
+  renderFarmHud(); // opt-in canvas playboard chrome (no-op unless ?farmui)
 }
 
 function lastPlacedTile() {

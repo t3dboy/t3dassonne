@@ -6,11 +6,11 @@
 // ============================================================================
 
 export const PALETTE = {
-  // --- Grass / fields (Celeste greens, matched to the pixel tiles) ---------
-  grassLight: "#9fd45a", // Celeste lit grass
-  grassMid: "#4c8c32", // Celeste mid grass
-  grassDark: "#356b2b", // Celeste shaded grass
-  grassDeep: "#274d24", // Celeste deep shade / meadow base
+  // --- Grass / fields (meadow greens, matched to the pixel tiles) ---------
+  grassLight: "#9fd45a", // lit grass
+  grassMid: "#4c8c32", // mid grass
+  grassDark: "#356b2b", // shaded grass
+  grassDeep: "#274d24", // deep shade / meadow base
 
   // --- Field trees & detail ------------------------------------------------
   treeGreen: "#4f7d33",
