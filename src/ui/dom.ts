@@ -32,3 +32,17 @@ export function button(
 export function clear(node: HTMLElement) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
+
+// Live env(safe-area-inset-top) in CSS px (0 where not applicable). Used to push
+// the canvas HUD/menu below the iPhone status bar / Dynamic Island. Measured via
+// a hidden probe so it also updates on rotation.
+let _safeProbe: HTMLDivElement | null = null;
+export function safeAreaTop(): number {
+  if (!_safeProbe) {
+    _safeProbe = document.createElement("div");
+    _safeProbe.style.cssText =
+      "position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none;visibility:hidden;";
+    document.body.appendChild(_safeProbe);
+  }
+  return _safeProbe.getBoundingClientRect().height || 0;
+}

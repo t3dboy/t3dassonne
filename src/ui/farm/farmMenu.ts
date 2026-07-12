@@ -12,6 +12,7 @@ import { type PixBuf, drawText, textWidth } from "./pixelfont";
 import * as UI from "./uiscene";
 import type { Difficulty } from "../../ai";
 import { openGuide } from "../guide";
+import { safeAreaTop } from "../dom";
 
 const R = UI.RGBP;
 const LH = 380;        // fixed logical height (enough for all the content)
@@ -37,24 +38,24 @@ interface MenuState {
   pressed: string | null;
 }
 
-function header(b: PixBuf, W: number): void {
+function header(b: PixBuf, W: number, inset: number): void {
   const pw = Math.min(W - 16, MAX_PANEL), cx = Math.round((W - pw) / 2);
-  UI.panel(b, cx, 16, pw, 32);
+  UI.panel(b, cx, 16 + inset, pw, 32);
   const title = "T3DASSONNE", tw = textWidth(title, 2, 1);
-  drawText(b, title, Math.round((W - tw) / 2), 25, R.panelWoodDk, 2, 1, null);
-  drawText(b, title, Math.round((W - tw) / 2) - 1, 24, R.gold, 2, 1, null);
+  drawText(b, title, Math.round((W - tw) / 2), 25 + inset, R.panelWoodDk, 2, 1, null);
+  drawText(b, title, Math.round((W - tw) / 2) - 1, 24 + inset, R.gold, 2, 1, null);
 }
 
-function drawMain(b: PixBuf, state: MenuState): Hit[] {
+function drawMain(b: PixBuf, state: MenuState, inset: number): Hit[] {
   const W = b.w, H = b.h, hits: Hit[] = [];
   const pw = Math.min(W - 16, MAX_PANEL);
   const cx = Math.round((W - pw) / 2);
   const ix = cx + 10, iw = pw - 20;
 
   // "How to play" guide button, tucked below the title sign
-  const gw = 100, gx = Math.round((W - gw) / 2);
-  UI.button(b, gx, 54, gw, 20, "? HOW TO PLAY", { teal: true, scale: 1, pressed: state.pressed === "guide" });
-  hits.push({ id: "guide", x: gx, y: 54, w: gw, h: 20 });
+  const gw = 100, gx = Math.round((W - gw) / 2), gy = 54 + inset;
+  UI.button(b, gx, gy, gw, 20, "? HOW TO PLAY", { teal: true, scale: 1, pressed: state.pressed === "guide" });
+  hits.push({ id: "guide", x: gx, y: gy, w: gw, h: 20 });
 
   const ph = 150, py = H - ph - 20;
   UI.panel(b, cx, py, pw, ph);
@@ -118,8 +119,10 @@ function draw(b: PixBuf, t: number, state: MenuState): Hit[] {
   const W = b.w, H = b.h;
   UI.drawBackground(b, t);
   for (let i = 0; i < W * H; i++) { const j = i * 4; b.data[j] *= 0.9; b.data[j + 1] *= 0.9; b.data[j + 2] *= 0.94; }
-  header(b, W);
-  const hits = state.screen === "diff" ? drawDiff(b, state) : drawMain(b, state);
+  // drop the top content below the iPhone status bar / Dynamic Island
+  const inset = Math.round(safeAreaTop() * H / Math.max(1, window.innerHeight));
+  header(b, W, inset);
+  const hits = state.screen === "diff" ? drawDiff(b, state) : drawMain(b, state, inset);
   if (state.screen === "main") {
     const hint = "TAP TO PLAY";
     if (0.5 + 0.5 * Math.sin(t * 3) > 0.35) drawText(b, hint, Math.round((W - textWidth(hint, 1, 1)) / 2), H - 14, R.white, 1, 1, [10, 8, 16]);

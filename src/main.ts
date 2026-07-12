@@ -19,7 +19,7 @@ import {
   type Mode,
   type FinalResult,
 } from "./ui/screens";
-import { el, button, clear } from "./ui/dom";
+import { el, button, clear, safeAreaTop } from "./ui/dom";
 import { mountFarmMenu } from "./ui/farm/farmMenu";
 import { drawFarmHud, type HudState, type HudHit } from "./ui/farm/farmHud";
 import type { PixBuf } from "./ui/farm/pixelfont";
@@ -53,6 +53,7 @@ let farmHudCtx: CanvasRenderingContext2D | null = null;
 let farmHudBuf: PixBuf | null = null;
 let farmHudHits: HudHit[] = [];
 let farmBanner: { text: string; color: [number, number, number]; born: number } | null = null;
+let farmHudInset = 0; // buffer-px inset to clear the iPhone status bar / Dynamic Island
 
 // ---- root DOM --------------------------------------------------------------
 const app = document.getElementById("app")!;
@@ -1011,6 +1012,7 @@ function buildHudState(): HudState {
       color: hexRgb(p.color),
       name: p.name.toUpperCase().slice(0, 6),
       score: String(p.score),
+      meeples: String(p.meeplesLeft),
       active: i === gg.current,
     })),
     tilesLeft: String(gg.deck.length),
@@ -1019,6 +1021,7 @@ function buildHudState(): HudState {
     meeple: gg.phase === "placeMeeple" && pendingMeeple === null && currentPlayer().kind === "human" && !busy,
     banner: farmBanner && performance.now() - farmBanner.born < 1800 ? { text: farmBanner.text, color: farmBanner.color } : null,
     muted: audio.isMuted(),
+    topInset: farmHudInset,
   };
 }
 function renderFarmHud() {
@@ -1037,6 +1040,8 @@ function renderFarmHud() {
     farmHudCanvas.width = lw; farmHudCanvas.height = lh;
     farmHudCtx!.imageSmoothingEnabled = false;
   }
+  // safe-area inset (iPhone status bar / Dynamic Island), in buffer px
+  farmHudInset = Math.round(safeAreaTop() * lh / Math.max(1, H));
   farmHudBuf.data.fill(0); // transparent — board shows through the gaps
   const layout = drawFarmHud(farmHudBuf, performance.now() / 1000, buildHudState());
   farmHudHits = layout.hits;

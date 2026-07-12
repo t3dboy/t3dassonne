@@ -12,7 +12,7 @@ import * as UI from "./uiscene";
 
 const R = UI.RGBP;
 
-export interface HudChip { color: RGB; name: string; score: string; active: boolean; }
+export interface HudChip { color: RGB; name: string; score: string; meeples: string; active: boolean; }
 export interface HudState {
   chips: HudChip[];
   tilesLeft: string;
@@ -21,19 +21,28 @@ export interface HudState {
   meeple: boolean;                       // show the "no meeple" (meeple + cross) button
   banner: { text: string; color: RGB } | null; // feature-scored feedback
   muted: boolean;
+  topInset: number;                      // px to drop the top row below the iPhone status bar
 }
 export interface HudHit { id: string; x: number; y: number; w: number; h: number; }
 export interface HudRect { x: number; y: number; w: number; h: number; }
 export interface HudLayout { hits: HudHit[]; hand: HudRect | null; meeple: HudRect | null; }
 
-function chip(b: PixBuf, x: number, y: number, w: number, dot: RGB, name: string, score: string, active: boolean): void {
+function chip(b: PixBuf, x: number, y: number, w: number, dot: RGB, name: string, score: string, meeples: string, active: boolean): void {
   UI.rect(b, x, y, w, 13, [20, 15, 29]);
   for (let i = 0; i < w; i++) { UI.px(b, x + i, y, [68, 52, 86]); UI.px(b, x + i, y + 12, [68, 52, 86]); }
   for (let i = 0; i < 13; i++) { UI.px(b, x, y + i, [68, 52, 86]); UI.px(b, x + w - 1, y + i, [68, 52, 86]); }
   if (active) for (let i = -1; i <= w; i++) { UI.px(b, x + i, y - 1, R.gold); UI.px(b, x + i, y + 13, R.gold); }
   UI.disc(b, x + 6, y + 6, 3, dot);
   drawText(b, name, x + 12, y + 3, R.white, 1, 1, [10, 8, 16]);
-  drawText(b, score, x + w - 2 - textWidth(score, 1, 1), y + 3, R.gold, 1, 1, [10, 8, 16]);
+  // right group, right-aligned: [♟ meeples-left] then the score. The meeple
+  // glyph is tinted the player's colour so it reads as "their followers left".
+  const scoreW = textWidth(score, 1, 1);
+  const cntW = textWidth(meeples, 1, 1);
+  const sx = x + w - 2 - scoreW;                 // score at the far right
+  drawText(b, score, sx, y + 3, R.gold, 1, 1, [10, 8, 16]);
+  const gx = sx - 4 - cntW - 6;                  // glyph, then count, before the score
+  drawText(b, "♟", gx, y + 3, dot, 1, 1, [10, 8, 16]);
+  drawText(b, meeples, gx + 6, y + 3, R.white, 1, 1, [10, 8, 16]);
 }
 
 /** Draw the HUD chrome into `b` (transparent where the board should show). */
@@ -41,23 +50,26 @@ export function drawFarmHud(b: PixBuf, t: number, s: HudState): HudLayout {
   const W = b.w, H = b.h;
   const hits: HudHit[] = [];
 
+  // top row sits below the iPhone status bar / Dynamic Island
+  const top = 6 + s.topInset;
+
   // score chips, top-left
-  let cy = 6;
+  let cy = top;
   const cw = 84;
-  for (const c of s.chips) { chip(b, 4, cy, cw, c.color, c.name, c.score, c.active); cy += 16; }
+  for (const c of s.chips) { chip(b, 4, cy, cw, c.color, c.name, c.score, c.meeples, c.active); cy += 16; }
 
   // ? / ♪ / ☰ top-right
-  UI.button(b, W - 60, 6, 16, 16, "?", { scale: 1 });
-  hits.push({ id: "guide", x: W - 60, y: 6, w: 16, h: 16 });
-  UI.button(b, W - 40, 6, 16, 16, s.muted ? "x" : "♪", { scale: 1 });
-  hits.push({ id: "mute", x: W - 40, y: 6, w: 16, h: 16 });
-  UI.button(b, W - 20, 6, 16, 16, "☰", { scale: 1 });
-  hits.push({ id: "menu", x: W - 20, y: 6, w: 16, h: 16 });
+  UI.button(b, W - 60, top, 16, 16, "?", { scale: 1 });
+  hits.push({ id: "guide", x: W - 60, y: top, w: 16, h: 16 });
+  UI.button(b, W - 40, top, 16, 16, s.muted ? "x" : "♪", { scale: 1 });
+  hits.push({ id: "mute", x: W - 40, y: top, w: 16, h: 16 });
+  UI.button(b, W - 20, top, 16, 16, "☰", { scale: 1 });
+  hits.push({ id: "menu", x: W - 20, y: top, w: 16, h: 16 });
 
   // feature-scoring banner (bobs), centred near top
   if (s.banner) {
     const bwid = textWidth(s.banner.text, 2, 1) + 20;
-    const by = 60 + Math.round(Math.sin(t * 2) * 2);
+    const by = 54 + s.topInset + Math.round(Math.sin(t * 2) * 2);
     UI.panel(b, Math.round((W - bwid) / 2), by, bwid, 30);
     drawText(b, s.banner.text, Math.round((W - textWidth(s.banner.text, 2, 1)) / 2), by + 10, s.banner.color, 2, 1, [230, 200, 160]);
   }
