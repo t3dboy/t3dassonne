@@ -33,16 +33,20 @@ export function clear(node: HTMLElement) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
-// Live env(safe-area-inset-top) in CSS px (0 where not applicable). Used to push
-// the canvas HUD/menu below the iPhone status bar / Dynamic Island. Measured via
-// a hidden probe so it also updates on rotation.
-let _safeProbe: HTMLDivElement | null = null;
-export function safeAreaTop(): number {
-  if (!_safeProbe) {
-    _safeProbe = document.createElement("div");
-    _safeProbe.style.cssText =
-      "position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none;visibility:hidden;";
-    document.body.appendChild(_safeProbe);
+// Live env(safe-area-inset-*) in CSS px (0 where not applicable). Used to push
+// the canvas HUD/menu clear of the iPhone status bar / Dynamic Island (top) and
+// the home indicator (bottom). Measured via hidden probes so they also reflect
+// the current device on rotation.
+function _probe(which: "top" | "bottom"): number {
+  let p = _probes[which];
+  if (!p) {
+    p = document.createElement("div");
+    p.style.cssText = `position:fixed;${which}:0;left:0;width:0;height:env(safe-area-inset-${which},0px);pointer-events:none;visibility:hidden;`;
+    document.body.appendChild(p);
+    _probes[which] = p;
   }
-  return _safeProbe.getBoundingClientRect().height || 0;
+  return p.getBoundingClientRect().height || 0;
 }
+const _probes: { top?: HTMLDivElement; bottom?: HTMLDivElement } = {};
+export function safeAreaTop(): number { return _probe("top"); }
+export function safeAreaBottom(): number { return _probe("bottom"); }

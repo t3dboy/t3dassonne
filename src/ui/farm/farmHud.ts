@@ -21,7 +21,8 @@ export interface HudState {
   meeple: boolean;                       // show the "no meeple" (meeple + cross) button
   banner: { text: string; color: RGB } | null; // feature-scored feedback
   muted: boolean;
-  topInset: number;                      // px to drop the top row below the iPhone status bar
+  topInset: number;                      // px to drop the top row below the iPhone status bar / DI
+  bottomInset: number;                   // px to lift the bottom dock above the iPhone home indicator / DI (when flipped)
 }
 export interface HudHit { id: string; x: number; y: number; w: number; h: number; }
 export interface HudRect { x: number; y: number; w: number; h: number; }
@@ -74,18 +75,23 @@ export function drawFarmHud(b: PixBuf, t: number, s: HudState): HudLayout {
     drawText(b, s.banner.text, Math.round((W - textWidth(s.banner.text, 2, 1)) / 2), by + 10, s.banner.color, 2, 1, [230, 200, 160]);
   }
 
-  // bottom scrim so the dock chrome reads over the board
-  for (let y = H - 58; y < H; y++) for (let x = 0; x < W; x++) UI.px(b, x, y, [20, 15, 29], (y - (H - 58)) / 58 * 0.55);
+  // the whole bottom dock lifts by `bottomInset` so it clears the iPhone home
+  // indicator (or the Dynamic Island, when the view is flipped in table mode)
+  const bottom = H - s.bottomInset;
+
+  // bottom scrim so the dock chrome reads over the board (extends to the true
+  // bottom edge so the inset gap under the dock is darkened too)
+  for (let y = bottom - 58; y < H; y++) for (let x = 0; x < W; x++) UI.px(b, x, y, [20, 15, 29], Math.min(1, (y - (bottom - 58)) / 58) * 0.55);
 
   // tiles-left box, bottom-left
-  UI.rect(b, 8, H - 46, 26, 30, [20, 15, 29]);
-  for (let i = 0; i < 26; i++) { UI.px(b, 8 + i, H - 46, [68, 52, 86]); UI.px(b, 8 + i, H - 17, [68, 52, 86]); }
-  for (let i = 0; i < 30; i++) { UI.px(b, 8, H - 46 + i, [68, 52, 86]); UI.px(b, 33, H - 46 + i, [68, 52, 86]); }
-  drawText(b, s.tilesLeft, 8 + Math.round((26 - textWidth(s.tilesLeft, 2, 1)) / 2), H - 42, R.gold, 2, 1, null);
-  drawText(b, "LEFT", 8 + Math.round((26 - textWidth("LEFT", 1, 1)) / 2), H - 25, R.white, 1, 1, null);
+  UI.rect(b, 8, bottom - 46, 26, 30, [20, 15, 29]);
+  for (let i = 0; i < 26; i++) { UI.px(b, 8 + i, bottom - 46, [68, 52, 86]); UI.px(b, 8 + i, bottom - 17, [68, 52, 86]); }
+  for (let i = 0; i < 30; i++) { UI.px(b, 8, bottom - 46 + i, [68, 52, 86]); UI.px(b, 33, bottom - 46 + i, [68, 52, 86]); }
+  drawText(b, s.tilesLeft, 8 + Math.round((26 - textWidth(s.tilesLeft, 2, 1)) / 2), bottom - 42, R.gold, 2, 1, null);
+  drawText(b, "LEFT", 8 + Math.round((26 - textWidth("LEFT", 1, 1)) / 2), bottom - 25, R.white, 1, 1, null);
 
   // hand slot (frame + pulsing gold glow); the tile is drawn by the caller
-  const HT = 44, hx = 44, hy = H - 50;
+  const HT = 44, hx = 44, hy = bottom - 50;
   UI.rect(b, hx - 2, hy - 2, HT + 4, HT + 4, [36, 26, 46]);
   const glow = 0.4 + 0.3 * (0.5 + 0.5 * Math.sin(t * 4));
   for (let i = -1; i <= HT; i++) { UI.px(b, hx + i, hy - 2, R.gold, glow); UI.px(b, hx + i, hy + HT + 1, R.gold, glow); UI.px(b, hx - 2, hy + i, R.gold, glow); UI.px(b, hx + HT + 1, hy + i, R.gold, glow); }
@@ -100,7 +106,7 @@ export function drawFarmHud(b: PixBuf, t: number, s: HudState): HudLayout {
   // the "no meeple" button share this exact spot and swap in place — never side
   // by side — so the primary action never jumps sideways between phases. The
   // caller draws the follower + cross into the returned `meeple` rect.
-  const BW = 48, BH = 44, aby = H - 64 - BH;
+  const BW = 48, BH = 44, aby = bottom - 64 - BH;
   const cbx = W - 6 - BW;
   let meeple: HudRect | null = null;
   if (s.meeple) {

@@ -19,7 +19,7 @@ import {
   type Mode,
   type FinalResult,
 } from "./ui/screens";
-import { el, button, clear, safeAreaTop } from "./ui/dom";
+import { el, button, clear, safeAreaTop, safeAreaBottom } from "./ui/dom";
 import { mountFarmMenu } from "./ui/farm/farmMenu";
 import { drawFarmHud, type HudState, type HudHit } from "./ui/farm/farmHud";
 import type { PixBuf } from "./ui/farm/pixelfont";
@@ -53,7 +53,8 @@ let farmHudCtx: CanvasRenderingContext2D | null = null;
 let farmHudBuf: PixBuf | null = null;
 let farmHudHits: HudHit[] = [];
 let farmBanner: { text: string; color: [number, number, number]; born: number } | null = null;
-let farmHudInset = 0; // buffer-px inset to clear the iPhone status bar / Dynamic Island
+let farmHudInset = 0; // buffer-px inset at the content TOP (clears the DI, or home bar when flipped)
+let farmHudBottomInset = 0; // buffer-px inset at the content BOTTOM dock (clears the home bar, or DI when flipped)
 
 // ---- root DOM --------------------------------------------------------------
 const app = document.getElementById("app")!;
@@ -1022,6 +1023,7 @@ function buildHudState(): HudState {
     banner: farmBanner && performance.now() - farmBanner.born < 1800 ? { text: farmBanner.text, color: farmBanner.color } : null,
     muted: audio.isMuted(),
     topInset: farmHudInset,
+    bottomInset: farmHudBottomInset,
   };
 }
 function renderFarmHud() {
@@ -1040,8 +1042,13 @@ function renderFarmHud() {
     farmHudCanvas.width = lw; farmHudCanvas.height = lh;
     farmHudCtx!.imageSmoothingEnabled = false;
   }
-  // safe-area inset (iPhone status bar / Dynamic Island), in buffer px
-  farmHudInset = Math.round(safeAreaTop() * lh / Math.max(1, H));
+  // Safe-area insets in buffer px. When the view is flipped 180° (table mode),
+  // the content's top sits at the physical BOTTOM and vice-versa, so the DI /
+  // home-bar insets swap between the top row and the bottom dock.
+  const scale = lh / Math.max(1, H);
+  const topSafe = safeAreaTop(), botSafe = safeAreaBottom();
+  farmHudInset = Math.round((viewFlipped ? botSafe : topSafe) * scale);
+  farmHudBottomInset = Math.round((viewFlipped ? topSafe : botSafe) * scale);
   farmHudBuf.data.fill(0); // transparent — board shows through the gaps
   const layout = drawFarmHud(farmHudBuf, performance.now() / 1000, buildHudState());
   farmHudHits = layout.hits;
