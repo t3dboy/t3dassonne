@@ -405,6 +405,52 @@ function cityComponent(g: GameState, x: number, y: number, segIdx: number): { ke
   return { key, complete };
 }
 
+/** Flood the CITY component containing (x,y,segIdx) and tally who holds it: how
+ *  many followers belong to `aiId` vs everyone else, plus size/pennants/closed.
+ *  Used by the aggressive AI to judge a merge — share (tie), steal (majority),
+ *  or gift (we have no stake). Assumes the tile is already on the board. */
+function analyzeCity(
+  g: GameState, x: number, y: number, segIdx: number, aiId: number,
+): { key: string; complete: boolean; tiles: number; pennants: number; aiCount: number; oppCount: number } | null {
+  if (!g.board.get(`${x},${y}`)) return null;
+  const visited = new Set<string>();
+  const countedTiles = new Set<string>();
+  const stack: [number, number, number][] = [[x, y, segIdx]];
+  let complete = true, tiles = 0, pennants = 0, aiCount = 0, oppCount = 0;
+  let key = `${x},${y}#${segIdx}`;
+  let guard = 0;
+  while (stack.length && guard++ < 4000) {
+    const [cx, cy, si] = stack.pop()!;
+    const k = `${cx},${cy}#${si}`;
+    if (visited.has(k)) continue;
+    visited.add(k);
+    if (k < key) key = k;
+    const pt = g.board.get(`${cx},${cy}`);
+    if (!pt) continue;
+    const s = pt.def.segments[si];
+    if (!s || s.kind !== "city") continue;
+    if (!countedTiles.has(`${cx},${cy}`)) { countedTiles.add(`${cx},${cy}`); tiles++; }
+    if (s.pennant) pennants++;
+    if (pt.meeple && pt.meeple.segmentIndex === si) {
+      if (pt.meeple.playerId === aiId) aiCount++; else oppCount++;
+    }
+    for (const unrotSide of s.edges) {
+      const ws = (unrotSide + pt.rotation) % 4;
+      const nx = cx + FDX[ws], ny = cy + FDY[ws];
+      const nb = g.board.get(`${nx},${ny}`);
+      if (!nb) { complete = false; continue; }
+      const inSide = FOPP[ws];
+      let found = -1;
+      for (const ns of nb.def.segments) {
+        if (ns.kind !== "city") continue;
+        if (ns.edges.some((e) => ((e + nb.rotation) % 4) === inSide)) { found = ns.index; break; }
+      }
+      if (found >= 0) stack.push([nx, ny, found]);
+    }
+  }
+  return { key, complete, tiles, pennants, aiCount, oppCount };
+}
+
 /** Flood the FIELD component containing (x,y,startSeg) and tally the distinct
  *  cities it borders, split into completed vs still-open. The start tile is
  *  assumed already on the board (true in every caller). */
@@ -666,9 +712,10 @@ function evaluatePlacement(
   // Reward completing/growing our features (captured via meeple value), plus a
   // structural term for edges matched (progress) and a denial term.
   let structural = 0;
-  let helpComplete = 0; // opponent features this move FINISHES (a gift → always avoid)
-  let entangle = 0;     // opponent features this move grows but doesn't finish
-  let contestAdj = 0;   // opponent CITY size we sit beside (contest setup)
+  // opponent-feature effects, split by kind (cities are judged by ownership below)
+  let roadHelpComplete = 0, roadEntangle = 0;   // finishing / growing their ROADS
+  let cityHelpComplete = 0, cityEntangle = 0;    // finishing / growing their CITIES (non-aggressive)
+  let contestAdj = 0;                            // opp CITY size we sit beside (contest setup)
   const DX = [0, 1, 0, -1];
   const DY = [-1, 0, 1, 0];
   const OPP = [2, 3, 0, 1];
@@ -678,21 +725,21 @@ function evaluatePlacement(
       const nb = sim.board.get(`${placedTile.x + DX[side]},${placedTile.y + DY[side]}`);
       if (!nb) continue;
       structural += 0.4;
-      // If this neighbour has an opponent meeple on a feature we're extending,
-      // we may be helping them (or, if it completes for them, definitely).
       if (nb.meeple && nb.meeple.playerId !== aiId) {
-        // find the neighbour segment we connect to and survey its completeness.
         const inSide = OPP[side];
         for (const ns of nb.def.segments) {
           if (ns.kind !== "city" && ns.kind !== "road") continue;
-          const touches = ns.edges.some((e) => ((e + nb.rotation) % 4) === inSide);
-          if (!touches) continue;
+          if (!ns.edges.some((e) => ((e + nb.rotation) % 4) === inSide)) continue;
           if (nb.meeple.segmentIndex === ns.index) {
             const sv = surveyFeature(sim, placedTile.x, placedTile.y, placedTile.rotation, ns);
             const per = ns.kind === "city" ? CITY_TILE_VALUE : ROAD_TILE_VALUE;
             const help = sv.tiles * per + sv.pennants * PENNANT_VALUE;
-            if (sv.complete) helpComplete += help; else entangle += help * 0.25;
-            if (ns.kind === "city") contestAdj += sv.tiles;
+            if (ns.kind === "road") {
+              if (sv.complete) roadHelpComplete += help; else roadEntangle += help * 0.25;
+            } else {
+              if (sv.complete) cityHelpComplete += help; else cityEntangle += help * 0.25;
+              contestAdj += sv.tiles;
+            }
           }
         }
       }
@@ -701,15 +748,38 @@ function evaluatePlacement(
 
   const ownSeg = bestMeepleSeg >= 0 && placedTile ? segOf(placedTile.def, bestMeepleSeg) : undefined;
 
-  // Never gift an opponent a completed feature — a penalty for every difficulty.
-  let score = bestMeepleVal + structural - helpComplete * Math.max(t.denyWeight, 1);
-  if (t.aggression > 0) {
-    // AGGRESSIVE: seek to entangle with the human's features (share/steal), and
-    // especially reward planting our own knight right beside their city.
-    score += entangle * t.aggression;
-    if (ownSeg?.kind === "city") score += contestAdj * t.aggression * 0.8;
+  // Never gift an opponent a completed/grown ROAD — a penalty for every difficulty.
+  let score = bestMeepleVal + structural
+    - roadHelpComplete * Math.max(t.denyWeight, 1)
+    - roadEntangle * Math.max(t.denyWeight, 0.4);
+
+  if (t.aggression > 0 && placedTile) {
+    // AGGRESSIVE: judge every city this placement touches by who will hold it.
+    //  - our knights already merged in AND we hold the majority/tie → we SHARE or
+    //    STEAL it: reward (this is "joining their city to take the points").
+    //  - opponent holds it and we have no stake → we'd just be handing them points
+    //    (worst when we complete it): heavy penalty, so it stops finishing your cities.
+    let contest = 0, gift = 0;
+    const seen = new Set<string>();
+    for (const seg of placedTile.def.segments) {
+      if (seg.kind !== "city") continue;
+      const a = analyzeCity(sim, placedTile.x, placedTile.y, seg.index, aiId);
+      if (!a || seen.has(a.key)) continue;
+      seen.add(a.key);
+      const pts = a.tiles * CITY_TILE_VALUE + a.pennants * PENNANT_VALUE;
+      if (a.oppCount > 0 && a.aiCount > 0) {
+        if (a.aiCount >= a.oppCount) contest += pts * (a.complete ? 1.3 : 0.9); // share / steal
+        else gift += pts * 0.7;                                                 // we're the minority
+      } else if (a.oppCount > 0) {
+        gift += pts * (a.complete ? 1.6 : 0.5);                                 // pure gift to them
+      }
+    }
+    score += contest * t.aggression - gift * (t.aggression + 1);
+    // small nudge to plant a fresh knight right beside their city (sets up a merge)
+    if (ownSeg?.kind === "city") score += contestAdj * t.aggression * 0.3;
   } else {
-    score -= entangle * t.denyWeight;
+    score -= cityHelpComplete * Math.max(t.denyWeight, 1);
+    score -= cityEntangle * t.denyWeight;
   }
 
   return { score, meepleSegmentIndex: bestMeepleSeg };
