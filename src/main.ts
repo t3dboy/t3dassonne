@@ -1170,12 +1170,12 @@ function frame() {
         anyCells.add(k);
         if (l.rotation === rot) curCells.add(k);
       }
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2.5;
       ctx.setLineDash([6, 6]);
       for (const key of anyCells) {
         const [sx, sy] = key.split(",").map(Number);
         const [px, py] = cellTopLeft(sx, sy);
-        ctx.strokeStyle = curCells.has(key) ? "rgba(242,193,78,0.5)" : "rgba(242,193,78,0.28)";
+        ctx.strokeStyle = curCells.has(key) ? "rgba(245,200,80,0.92)" : "rgba(245,200,80,0.6)";
         ctx.strokeRect(px + 4, py + 4, ts - 8, ts - 8);
       }
       ctx.restore();
