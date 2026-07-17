@@ -2,6 +2,7 @@
 import { el, button, clear } from "./dom";
 import type { Difficulty } from "../ai";
 import { openGuide } from "./guide";
+import { openSettings } from "./settings";
 
 export const PLAYER_COLORS = [
   "#d4453a", // red
@@ -40,7 +41,8 @@ export function showMenu(root: HTMLElement, cb: { onPlay: (m: Mode) => void }) {
   panel.append(
     button("Play vs Computer", () => cb.onPlay("ai"), "btn gold"),
     button("Pass & Play (local)", () => cb.onPlay("pass"), "btn"),
-    button("How to Play", () => openGuide("quick"), "btn guide")
+    button("How to Play", () => openGuide("quick"), "btn guide"),
+    button("Settings", () => openSettings(), "btn ghost")
   );
   screen.append(panel);
   screen.append(el("div", { class: "subtitle" }, ["Base game · 72 tiles"]));

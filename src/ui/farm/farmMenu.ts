@@ -12,6 +12,7 @@ import { type PixBuf, drawText, textWidth } from "./pixelfont";
 import * as UI from "./uiscene";
 import type { Difficulty } from "../../ai";
 import { openGuide } from "../guide";
+import { openSettings } from "../settings";
 import { safeAreaTop } from "../dom";
 
 const R = UI.RGBP;
@@ -52,10 +53,14 @@ function drawMain(b: PixBuf, state: MenuState, inset: number): Hit[] {
   const cx = Math.round((W - pw) / 2);
   const ix = cx + 10, iw = pw - 20;
 
-  // "How to play" guide button, tucked below the title sign
-  const gw = 100, gx = Math.round((W - gw) / 2), gy = 54 + inset;
-  UI.button(b, gx, gy, gw, 20, "? HOW TO PLAY", { teal: true, scale: 1, pressed: state.pressed === "guide" });
+  // "How to play" + "Settings" buttons, tucked below the title sign
+  const gy = 54 + inset;
+  const gw = 66, sw = 96, tot = gw + 6 + sw, gx = Math.round((W - tot) / 2);
+  UI.button(b, gx, gy, gw, 20, "? GUIDE", { teal: true, scale: 1, pressed: state.pressed === "guide" });
   hits.push({ id: "guide", x: gx, y: gy, w: gw, h: 20 });
+  const sx = gx + gw + 6;
+  UI.button(b, sx, gy, sw, 20, "⚙ SETTINGS", { scale: 1, pressed: state.pressed === "settings" });
+  hits.push({ id: "settings", x: sx, y: gy, w: sw, h: 20 });
 
   const ph = 150, py = H - ph - 20;
   UI.panel(b, cx, py, pw, ph);
@@ -174,6 +179,7 @@ export function mountFarmMenu(host: HTMLElement, cb: FarmMenuCallbacks): () => v
       if (id === "vs") state.screen = "diff";
       else if (id === "pp") cb.start("pass", state.players, state.river, state.players === 2 && state.tableFlip, []);
       else if (id === "guide") openGuide();
+      else if (id === "settings") openSettings();
       else if (id[0] === "p" && id.length === 2) state.players = +id[1];
       else if (id === "rv") state.river = !state.river;
       else if (id === "tf") state.tableFlip = !state.tableFlip;

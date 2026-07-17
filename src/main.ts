@@ -9,6 +9,7 @@ import { drawTile, drawMeeple, BASE_TILE, computeMeepleSpot, loadMeeple3D, meepl
 import { audio } from "./audio";
 import { chooseTurn, type Difficulty } from "./ai";
 import { openGuide } from "./ui/guide";
+import { getSettings } from "./ui/settings";
 import {
   showMenu,
   showSetup,
@@ -1156,36 +1157,33 @@ function frame() {
 
   if (g) {
     const ts = tileSize();
-    // placement hints (tentative-placement mode)
-    if (appMode === "game" && g.phase === "placeTile" && currentPlayer().kind === "human" && !busy) {
+    // placement hints (tentative-placement mode) — can be turned off in Settings
+    if (appMode === "game" && g.phase === "placeTile" && currentPlayer().kind === "human" && !busy && getSettings().placementHints) {
       const rot = g.drawnRotation;
-      const pulse = (performance.now() / 500) % 1;
       ctx.save();
-      // every candidate square gets a faint marker so you know where you can try
-      const cands = candidateKeys();
+      // Every cell the tile can sit at ANY rotation. A touch stronger where the
+      // current rotation already fits; steady (no flashing) and subtle throughout.
+      const curCells = new Set<string>();
+      const anyCells = new Set<string>();
+      for (const l of legal) {
+        const k = posKey(l.x, l.y);
+        anyCells.add(k);
+        if (l.rotation === rot) curCells.add(k);
+      }
       ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 5]);
-      for (const key of cands) {
+      ctx.setLineDash([6, 6]);
+      for (const key of anyCells) {
         const [sx, sy] = key.split(",").map(Number);
         const [px, py] = cellTopLeft(sx, sy);
-        ctx.strokeStyle = "rgba(244,228,188,0.28)";
-        ctx.strokeRect(px + 5, py + 5, ts - 10, ts - 10);
-      }
-      // cells where the CURRENT rotation would fit glow gold
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([8, 6]);
-      for (const l of legal) {
-        if (l.rotation !== rot) continue;
-        const [px, py] = cellTopLeft(l.x, l.y);
-        ctx.strokeStyle = `rgba(242,193,78,${0.5 + 0.35 * Math.sin(pulse * Math.PI * 2)})`;
-        ctx.strokeRect(px + 3, py + 3, ts - 6, ts - 6);
+        ctx.strokeStyle = curCells.has(key) ? "rgba(242,193,78,0.5)" : "rgba(242,193,78,0.28)";
+        ctx.strokeRect(px + 4, py + 4, ts - 8, ts - 8);
       }
       ctx.restore();
     }
 
     // during meeple placement the tile isn't locked — show open squares faintly
-    // so the player knows they can still move it.
-    if (appMode === "game" && g.phase === "placeMeeple" && currentPlayer().kind === "human" && !busy) {
+    // so the player knows they can still move it (also off when hints are off).
+    if (appMode === "game" && g.phase === "placeMeeple" && currentPlayer().kind === "human" && !busy && getSettings().placementHints) {
       ctx.save();
       ctx.setLineDash([5, 5]);
       ctx.lineWidth = 1.5;
